@@ -413,7 +413,7 @@ February 2026
 
 - **Issues**: [GitHub Issues](https://github.com/yourusername/chronos/issues)
 - **Documentation**: See [docs/](doc/) folder
-- **Email**: kelvin.oteri@edgehill.ac.uk
+- **Email**: 26339188@edgehill.ac.uk
 
 ---
 
