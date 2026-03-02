@@ -1,0 +1,13 @@
+[browser]
+# Disables Streamlit's telemetry ping — eliminates the
+# "Failed to fetch metrics config: TimeoutError" console error entirely.
+gatherUsageStats = false
+
+[server]
+headless = true
+
+[theme]
+base = "dark"
+textColor = "#f0f0f0"
+backgroundColor = "#090909"
+secondaryBackgroundColor = "#07070c"

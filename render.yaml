@@ -1,0 +1,67 @@
+# Render.com Deployment Configuration
+# ==================================
+# Deploy CHRONOS to Render.com with PostgreSQL and automated deployments
+
+services:
+  # PostgreSQL Database
+  - type: pserv
+    name: chronos-postgres
+    env: docker
+    repo: https://github.com/yourusername/chronos
+    plan: standard
+    preDeployCommand: |
+      psql $DATABASE_URL -c "CREATE EXTENSION IF NOT EXISTS uuid-ossp;"
+    envVars:
+      - key: POSTGRES_USER
+        value: chronos_user
+      - key: POSTGRES_PASSWORD
+        generateValue: true
+      - key: POSTGRES_DB
+        value: chronos_db
+    autoDeploy: true
+
+  # Streamlit Application
+  - type: web
+    name: chronos-app
+    env: docker
+    repo: https://github.com/yourusername/chronos
+    plan: standard
+    rootDir: .
+    dockerfile: ./Dockerfile
+    dockerCommand: streamlit run Chronos/app.py --server.port=8501
+    autoDeploy: true
+    healthCheckPath: /_stcore/health
+    envVars:
+      - key: DATABASE_URL
+        fromService:
+          name: chronos-postgres
+          type: pserv
+          property: connectionString
+      - key: GOOGLE_API_KEY
+        sync: false
+      - key: STREAMLIT_SERVER_HEADLESS
+        value: "true"
+      - key: STREAMLIT_SERVER_PORT
+        value: "8501"
+      - key: PYTHONUNBUFFERED
+        value: "1"
+    scaling:
+      minInstances: 1
+      maxInstances: 3
+      targetCPUUtilizationPercentage: 70
+    headers:
+      - path: /*
+        name: X-Frame-Options
+        value: SAMEORIGIN
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
+
+databases:
+  - name: chronos-postgres
+    databaseName: chronos_db
+    user: chronos_user
+    region: oregon
