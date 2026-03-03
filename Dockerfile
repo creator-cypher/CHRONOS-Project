@@ -39,6 +39,7 @@ ENV PATH=/root/.local/bin:$PATH \
 COPY Chronos/ .
 
 # Create non-root user for security
+# No local uploads directory needed — images are stored on Cloudinary
 RUN useradd -m -u 1000 chronos && \
     chown -R chronos:chronos /app
 USER chronos

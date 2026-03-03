@@ -17,7 +17,6 @@ The page auto-refreshes every 5 minutes via an injected <meta> tag.
 Manual "Refresh Now" reruns the Streamlit script immediately.
 """
 
-import base64
 import csv
 import io
 import json
@@ -43,15 +42,15 @@ from database.queries import (
     get_all_images, add_image, get_preferences, update_preferences,
     get_recent_logs, deactivate_image, save_interaction,
 )
-from logic.context    import get_current_context, TIME_PERIOD_ICONS
-from logic.engine     import select_best_image
-from services.vision  import analyze_image
+from logic.context              import get_current_context, TIME_PERIOD_ICONS
+from logic.engine               import select_best_image
+from services.vision            import analyze_image
+from services.cloudinary_upload import upload_image as cloudinary_upload
 
 # ─── Initialise database on every cold start ─────────────────────────────────
 init_database()
 
-UPLOAD_DIR = Path(__file__).resolve().parent / "uploads"
-UPLOAD_DIR.mkdir(exist_ok=True)
+# No local upload directory — images are stored on Cloudinary
 
 
 # =============================================================================
@@ -640,20 +639,10 @@ def inject_sidebar_fab() -> None:
 def get_image_css_url(image: dict) -> str:
     """
     Returns a CSS-embeddable URL for the given image dict.
-    Local files are base64-encoded as data URIs to avoid Streamlit's
-    static file serving restrictions.
+    Images are stored on Cloudinary so we return the secure_url directly —
+    no base64 encoding needed.
     """
-    path = image.get("image_path", "")
-    url  = image.get("image_url", "")
-
-    if path and Path(path).exists():
-        suffix   = Path(path).suffix.lower()
-        mime_map = {".jpg": "jpeg", ".jpeg": "jpeg", ".png": "png", ".webp": "webp"}
-        mime     = mime_map.get(suffix, "jpeg")
-        b64      = base64.b64encode(Path(path).read_bytes()).decode()
-        return f"data:image/{mime};base64,{b64}"
-
-    return url or ""
+    return image.get("image_url", "") or ""
 
 
 def render_status_bar(context: dict) -> None:
@@ -841,17 +830,23 @@ def render_sidebar(context: dict, result) -> None:
             title = st.text_input("Title (optional)", placeholder="e.g. Misty Forest Dawn")
 
             if uploaded and st.button("Save & Analyse", use_container_width=True):
-                with st.spinner("Saving…"):
-                    # Save to uploads/
-                    dest = UPLOAD_DIR / uploaded.name
-                    dest.write_bytes(uploaded.getvalue())
-                    image_id = add_image(
-                        title=title or uploaded.name,
-                        image_path=str(dest),
+                with st.spinner("Uploading to Cloudinary…"):
+                    cloud = cloudinary_upload(
+                        uploaded.getvalue(),
+                        filename=uploaded.name,
                     )
 
-                with st.spinner("Analysing with Gemini 2.0 Flash…"):
-                    result_ai = analyze_image(dest)
+                if not cloud["success"]:
+                    st.error(f"Upload failed: {cloud['error']}")
+                    st.stop()
+
+                image_id = add_image(
+                    title=title or uploaded.name,
+                    image_url=cloud["secure_url"],
+                )
+
+                with st.spinner("Analysing with Gemini…"):
+                    result_ai = analyze_image(cloud["secure_url"])
 
                 if result_ai.success:
                     from database.queries import update_image_analysis
@@ -921,7 +916,7 @@ def render_sidebar(context: dict, result) -> None:
                 with col2:
                     if not analyzed:
                         if st.button("↺", key=f"re_{img['id']}", help="Re-analyse with Gemini"):
-                            src = img.get("image_path") or img.get("image_url") or ""
+                            src = img.get("image_url") or ""
                             if src:
                                 with st.spinner("Analysing…"):
                                     r = analyze_image(src)
