@@ -504,7 +504,7 @@ def inject_global_css(image_css_url: str, time_period: str) -> None:
     """, unsafe_allow_html=True)
 
     # Auto-refresh every 5 minutes via meta tag (ambient display behaviour)
-    st.markdown('<meta http-equiv="refresh" content="60">', unsafe_allow_html=True)
+    st.markdown('<meta http-equiv="refresh" content="120">', unsafe_allow_html=True)
 
 
 # =============================================================================
