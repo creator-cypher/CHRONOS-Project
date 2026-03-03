@@ -1,67 +1,29 @@
-# Render.com Deployment Configuration
-# ==================================
-# Deploy CHRONOS to Render.com with PostgreSQL and automated deployments
+# Render.com Deployment — CHRONOS Adaptive Ambient Display System
+# ================================================================
+# Deploy as a Python web service (no Docker, no PostgreSQL needed).
+# SQLite database is created automatically on first run.
+#
+# Usage:
+#   1. Connect this repo on dashboard.render.com
+#   2. Render auto-detects this file and creates the service
+#   3. Set GEMINI_API_KEY in Environment → Add Environment Variable
 
 services:
-  # PostgreSQL Database
-  - type: pserv
-    name: chronos-postgres
-    env: docker
-    repo: https://github.com/yourusername/chronos
-    plan: standard
-    preDeployCommand: |
-      psql $DATABASE_URL -c "CREATE EXTENSION IF NOT EXISTS uuid-ossp;"
-    envVars:
-      - key: POSTGRES_USER
-        value: chronos_user
-      - key: POSTGRES_PASSWORD
-        generateValue: true
-      - key: POSTGRES_DB
-        value: chronos_db
-    autoDeploy: true
-
-  # Streamlit Application
   - type: web
-    name: chronos-app
-    env: docker
-    repo: https://github.com/yourusername/chronos
-    plan: standard
-    rootDir: .
-    dockerfile: ./Dockerfile
-    dockerCommand: streamlit run Chronos/app.py --server.port=8501
+    name: chronos-aura
+    runtime: python
+    repo: https://github.com/creator-cypher/CHRONOS-Project
+    branch: main
+    rootDir: Chronos
+    buildCommand: pip install -r requirements.txt
+    startCommand: streamlit run app.py --server.address=0.0.0.0 --server.port=$PORT --server.headless=true --server.enableCORS=false
+    plan: free
     autoDeploy: true
     healthCheckPath: /_stcore/health
     envVars:
-      - key: DATABASE_URL
-        fromService:
-          name: chronos-postgres
-          type: pserv
-          property: connectionString
-      - key: GOOGLE_API_KEY
-        sync: false
-      - key: STREAMLIT_SERVER_HEADLESS
-        value: "true"
-      - key: STREAMLIT_SERVER_PORT
-        value: "8501"
+      - key: GEMINI_API_KEY
+        sync: false          # Set manually in Render dashboard — never commit your key
       - key: PYTHONUNBUFFERED
         value: "1"
-    scaling:
-      minInstances: 1
-      maxInstances: 3
-      targetCPUUtilizationPercentage: 70
-    headers:
-      - path: /*
-        name: X-Frame-Options
-        value: SAMEORIGIN
-      - path: /*
-        name: X-Content-Type-Options
-        value: nosniff
-      - path: /*
-        name: Referrer-Policy
-        value: strict-origin-when-cross-origin
-
-databases:
-  - name: chronos-postgres
-    databaseName: chronos_db
-    user: chronos_user
-    region: oregon
+      - key: PYTHON_VERSION
+        value: "3.11.0"
