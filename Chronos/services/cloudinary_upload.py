@@ -28,22 +28,45 @@ _configured = False
 def _ensure_configured() -> bool:
     """
     Configures the Cloudinary library from CLOUDINARY_URL env var.
-    Returns True if configured successfully, False if the key is missing.
+
+    The cloudinary library auto-reads CLOUDINARY_URL on import, but only if
+    the var is present at import time. On Render the var is always present, so
+    we just verify cloud_name is populated. If not (e.g. local dev without
+    .env loaded yet), we parse the URL ourselves and call config() explicitly.
     """
     global _configured
     if _configured:
         return True
 
-    url = os.environ.get("CLOUDINARY_URL", "")
-    if not url:
-        logger.warning("CLOUDINARY_URL not set — uploads will fail.")
-        return False
-
     try:
         import cloudinary
-        cloudinary.config.from_url(url)
+
+        # Library may have already auto-configured from the env var
+        if cloudinary.config().cloud_name:
+            _configured = True
+            return True
+
+        # Fallback: read and parse CLOUDINARY_URL manually
+        url = os.environ.get("CLOUDINARY_URL", "")
+        if not url:
+            logger.warning("CLOUDINARY_URL not set in environment.")
+            return False
+
+        # Format: cloudinary://API_KEY:API_SECRET@CLOUD_NAME
+        import re
+        m = re.match(r"cloudinary://([^:]+):([^@]+)@(.+)", url)
+        if not m:
+            logger.error("CLOUDINARY_URL format is invalid.")
+            return False
+
+        cloudinary.config(
+            api_key=m.group(1),
+            api_secret=m.group(2),
+            cloud_name=m.group(3),
+        )
         _configured = True
         return True
+
     except Exception as exc:
         logger.error("Cloudinary config failed: %s", exc)
         return False
