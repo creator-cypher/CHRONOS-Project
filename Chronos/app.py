@@ -758,18 +758,49 @@ def render_sidebar(context: dict, result) -> None:
             </div>
             """, unsafe_allow_html=True)
 
-            # ── Like / Skip feedback ──────────────────────────────────────
-            like_col, skip_col = st.columns(2)
-            with like_col:
-                if st.button("👍  Like", key=f"like_{img['id']}", use_container_width=True):
-                    save_interaction(img["id"], "like")
-                    st.toast("Liked — this image will score higher.")
-                    st.rerun()
-            with skip_col:
-                if st.button("⊘  Skip", key=f"skip_{img['id']}", use_container_width=True):
-                    save_interaction(img["id"], "skip")
-                    st.toast("Skipped — this image will show less often.")
-                    st.rerun()
+            # ── Manual Override Navigation or Standard Feedback ──────────────
+            if prefs.get("override_active"):
+                # Manual mode: show Prev/Skip for sequential navigation
+                prev_col, skip_col, like_col = st.columns(3)
+
+                with prev_col:
+                    if st.button("◀  Prev", key=f"prev_{img['id']}", use_container_width=True):
+                        all_imgs = get_all_images()
+                        if all_imgs:
+                            current_idx = next((i for i, im in enumerate(all_imgs) if im["id"] == img["id"]), 0)
+                            prev_idx = (current_idx - 1) % len(all_imgs)
+                            update_preferences(override_image_id=all_imgs[prev_idx]["id"])
+                            st.toast(f"← {all_imgs[prev_idx].get('title', 'Prev')}")
+                            st.rerun()
+
+                with skip_col:
+                    if st.button("▶  Next", key=f"skip_{img['id']}", use_container_width=True):
+                        all_imgs = get_all_images()
+                        if all_imgs:
+                            current_idx = next((i for i, im in enumerate(all_imgs) if im["id"] == img["id"]), 0)
+                            next_idx = (current_idx + 1) % len(all_imgs)
+                            update_preferences(override_image_id=all_imgs[next_idx]["id"])
+                            st.toast(f"{all_imgs[next_idx].get('title', 'Next')} →")
+                            st.rerun()
+
+                with like_col:
+                    if st.button("👍  Like", key=f"like_{img['id']}", use_container_width=True):
+                        save_interaction(img["id"], "like")
+                        st.toast("Liked — this image will score higher.")
+                        st.rerun()
+            else:
+                # Auto mode: standard Like/Skip feedback
+                like_col, skip_col = st.columns(2)
+                with like_col:
+                    if st.button("👍  Like", key=f"like_{img['id']}", use_container_width=True):
+                        save_interaction(img["id"], "like")
+                        st.toast("Liked — this image will score higher.")
+                        st.rerun()
+                with skip_col:
+                    if st.button("⊘  Skip", key=f"skip_{img['id']}", use_container_width=True):
+                        save_interaction(img["id"], "skip")
+                        st.toast("Skipped — this image will show less often.")
+                        st.rerun()
 
         st.divider()
 
@@ -806,11 +837,17 @@ def render_sidebar(context: dict, result) -> None:
         override_on = st.toggle(
             "Manual Override",
             value=bool(prefs.get("override_active", 0)),
-            help="When ON, the AI is bypassed entirely.",
+            help="When ON, the AI is bypassed entirely. Use Prev/Next to navigate.",
         )
         if override_on != bool(prefs.get("override_active", 0)):
             update_preferences(override_active=int(override_on))
-            if not override_on:
+            if override_on:
+                # When enabling: set first image as the override target
+                all_imgs = get_all_images()
+                if all_imgs:
+                    update_preferences(override_image_id=all_imgs[0]["id"])
+            else:
+                # When disabling: clear override
                 update_preferences(override_image_id=None)
             st.rerun()
 
