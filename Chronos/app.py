@@ -37,7 +37,7 @@ st.set_page_config(
 )
 
 # ─── Internal imports (after page config) ────────────────────────────────────
-from database.schema  import init_database
+from database import init_database
 from database.queries import (
     get_all_images, add_image, get_preferences, update_preferences,
     get_recent_logs, deactivate_image, save_interaction,

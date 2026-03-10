@@ -9,6 +9,21 @@
 #   3. Set GEMINI_API_KEY in Environment → Add Environment Variable
 
 services:
+  # PostgreSQL Database — provides persistent storage for images and metadata
+  - type: pserv
+    name: chronos-postgres
+    runtime: postgres
+    plan: free
+    ipAllowList: []  # Private — not publicly accessible
+    envVars:
+      - key: POSTGRES_USER
+        value: chronos
+      - key: POSTGRES_PASSWORD
+        generateValue: true  # Render generates a secure password
+      - key: POSTGRES_DB
+        value: chronos_db
+
+  # Streamlit Web Application
   - type: web
     name: chronos-aura
     runtime: python
@@ -20,11 +35,18 @@ services:
     plan: free
     autoDeploy: true
     healthCheckPath: /_stcore/health
+    depends:
+      - id: chronos-postgres  # Web service depends on DB starting first
     envVars:
       - key: GEMINI_API_KEY
         sync: false          # Set manually in Render dashboard — never commit your key
       - key: CLOUDINARY_URL
         sync: false          # Set manually in Render dashboard — never commit your key
+      - key: DATABASE_URL
+        fromService:
+          name: chronos-postgres
+          type: pserv
+          property: connectionString  # Render auto-injects PostgreSQL URL
       - key: PYTHONUNBUFFERED
         value: "1"
       - key: PYTHON_VERSION
