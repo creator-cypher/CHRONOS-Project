@@ -759,28 +759,29 @@ def render_sidebar(context: dict, result) -> None:
             """, unsafe_allow_html=True)
 
             # ── Manual Override Navigation or Standard Feedback ──────────────
-            if prefs.get("override_active"):
-                # Manual mode: show Prev/Skip for sequential navigation
-                prev_col, skip_col, like_col = st.columns(3)
+            override_active = bool(prefs.get("override_active", 0))
+
+            if override_active:
+                # Manual mode: show Prev/Next for sequential navigation
+                prev_col, next_col, like_col = st.columns(3)
+                all_imgs = get_all_images()
 
                 with prev_col:
-                    if st.button("◀  Prev", key=f"prev_{img['id']}", use_container_width=True):
-                        all_imgs = get_all_images()
-                        if all_imgs:
+                    if st.button("◀  Prev", key=f"prev_{img['id']}", use_container_width=True, disabled=len(all_imgs) < 2):
+                        if all_imgs and len(all_imgs) > 1:
                             current_idx = next((i for i, im in enumerate(all_imgs) if im["id"] == img["id"]), 0)
                             prev_idx = (current_idx - 1) % len(all_imgs)
                             update_preferences(override_image_id=all_imgs[prev_idx]["id"])
-                            st.toast(f"← {all_imgs[prev_idx].get('title', 'Prev')}")
+                            st.toast(f"← {all_imgs[prev_idx].get('title', 'Image')}")
                             st.rerun()
 
-                with skip_col:
-                    if st.button("▶  Next", key=f"skip_{img['id']}", use_container_width=True):
-                        all_imgs = get_all_images()
-                        if all_imgs:
+                with next_col:
+                    if st.button("▶  Next", key=f"next_{img['id']}", use_container_width=True, disabled=len(all_imgs) < 2):
+                        if all_imgs and len(all_imgs) > 1:
                             current_idx = next((i for i, im in enumerate(all_imgs) if im["id"] == img["id"]), 0)
                             next_idx = (current_idx + 1) % len(all_imgs)
                             update_preferences(override_image_id=all_imgs[next_idx]["id"])
-                            st.toast(f"{all_imgs[next_idx].get('title', 'Next')} →")
+                            st.toast(f"{all_imgs[next_idx].get('title', 'Image')} →")
                             st.rerun()
 
                 with like_col:
@@ -840,15 +841,18 @@ def render_sidebar(context: dict, result) -> None:
             help="When ON, the AI is bypassed entirely. Use Prev/Next to navigate.",
         )
         if override_on != bool(prefs.get("override_active", 0)):
-            update_preferences(override_active=int(override_on))
             if override_on:
-                # When enabling: set first image as the override target
+                # When enabling: ensure we have an image to override with
                 all_imgs = get_all_images()
-                if all_imgs:
-                    update_preferences(override_image_id=all_imgs[0]["id"])
+                if not all_imgs:
+                    st.warning("No images in library. Upload one first to use Manual Override.")
+                    st.rerun()
+                    return
+                # Set first image as override target
+                update_preferences(override_active=1, override_image_id=all_imgs[0]["id"])
             else:
                 # When disabling: clear override
-                update_preferences(override_image_id=None)
+                update_preferences(override_active=0, override_image_id=None)
             st.rerun()
 
         # ── Refresh ────────────────────────────────────────────────────────
