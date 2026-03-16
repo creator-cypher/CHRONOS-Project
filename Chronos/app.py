@@ -19,7 +19,6 @@ Manual "Refresh Now" reruns the Streamlit script immediately.
 
 import csv
 import io
-import json
 import time
 from pathlib import Path
 
@@ -37,10 +36,16 @@ st.set_page_config(
 )
 
 # ─── Internal imports (after page config) ────────────────────────────────────
+import pandas as pd
 from database import init_database
 from database.queries import (
     get_all_images, add_image, get_preferences, update_preferences,
     get_recent_logs, deactivate_image, save_interaction,
+    search_images, deactivate_images, get_image_interaction_summary,
+    get_mood_distribution, get_hourly_usage, get_mood_over_time,
+    get_display_config, update_display_config,
+    get_presets, save_preset, delete_preset, apply_preset,
+    update_image_error, update_image_schedule,
 )
 from logic.context              import get_current_context, TIME_PERIOD_ICONS
 from logic.engine               import select_best_image
@@ -51,6 +56,29 @@ from services.cloudinary_upload import upload_image as cloudinary_upload
 init_database()
 
 # No local upload directory — images are stored on Cloudinary
+
+
+# ─── Cached data helpers (Enhancement 6) ─────────────────────────────────────
+
+@st.cache_data(ttl=30)
+def cached_get_all_images():
+    return get_all_images()
+
+@st.cache_data(ttl=120)
+def cached_analytics_summary():
+    return get_image_interaction_summary()
+
+@st.cache_data(ttl=120)
+def cached_mood_distribution():
+    return get_mood_distribution()
+
+@st.cache_data(ttl=120)
+def cached_hourly_usage():
+    return get_hourly_usage()
+
+@st.cache_data(ttl=120)
+def cached_mood_over_time(days=30):
+    return get_mood_over_time(days)
 
 
 # =============================================================================
@@ -703,6 +731,42 @@ def render_reasoning_overlay(result) -> None:
 # Sidebar — Control Dashboard
 # =============================================================================
 
+def _invalidate_caches():
+    """Clear all Streamlit data caches after mutations."""
+    cached_get_all_images.clear()
+    cached_analytics_summary.clear()
+    cached_mood_distribution.clear()
+    cached_hourly_usage.clear()
+    cached_mood_over_time.clear()
+
+
+def _run_analysis(image_id: str, source_url: str):
+    """Run Gemini analysis on an image and save results. Returns AnalysisResult."""
+    from database.queries import update_image_analysis
+    # Load AI analysis settings
+    config = get_display_config()
+    r = analyze_image(
+        source_url,
+        depth=config.get("analysis_depth", "standard"),
+        focus=config.get("analysis_focus", ""),
+        custom=config.get("custom_prompt", ""),
+    )
+    if r.success:
+        update_image_analysis(
+            image_id=image_id,
+            description=r.description,
+            primary_mood=r.primary_mood,
+            optimal_time=r.optimal_time,
+            base_score=r.base_score,
+            dominant_colors=r.dominant_colors,
+            tags=r.tags,
+        )
+        return r
+    else:
+        update_image_error(image_id, r.error_message, 0)
+        return r
+
+
 def render_sidebar(context: dict, result) -> None:
     """
     Renders the Control Dashboard in the Streamlit sidebar.
@@ -764,7 +828,7 @@ def render_sidebar(context: dict, result) -> None:
             if override_active:
                 # Manual mode: show Prev/Next for sequential navigation
                 prev_col, next_col, like_col = st.columns(3)
-                all_imgs = get_all_images()
+                all_imgs = cached_get_all_images()
 
                 with prev_col:
                     if st.button("◀  Prev", key=f"prev_{img['id']}", use_container_width=True, disabled=len(all_imgs) < 2):
@@ -832,6 +896,36 @@ def render_sidebar(context: dict, result) -> None:
             update_preferences(sensitivity=new_sens)
             st.rerun()
 
+        # ── Quick Presets (Enhancement 8) ─────────────────────────────────
+        presets = get_presets()
+        if presets:
+            preset_names = ["— Select Preset —"] + [p["name"] for p in presets]
+            selected_preset = st.selectbox(
+                "Quick Presets", preset_names,
+                index=0, key="preset_select", label_visibility="collapsed",
+            )
+            if selected_preset != "— Select Preset —":
+                preset = next(p for p in presets if p["name"] == selected_preset)
+                apply_preset(preset["id"])
+                st.toast(f"Applied: {selected_preset}")
+                st.rerun()
+
+        with st.popover("Save Current as Preset", use_container_width=True):
+            preset_name = st.text_input("Preset name", key="new_preset_name")
+            if preset_name and st.button("Save Preset", key="save_preset_btn"):
+                save_preset(preset_name, new_mood, new_sens)
+                st.toast(f"Preset '{preset_name}' saved!")
+                st.rerun()
+            # Delete custom presets
+            custom = [p for p in presets if not p.get("is_default")]
+            if custom:
+                st.caption("Delete a custom preset:")
+                for p in custom:
+                    if st.button(f"× {p['name']}", key=f"delpreset_{p['id']}"):
+                        delete_preset(p["id"])
+                        st.toast(f"Deleted preset '{p['name']}'")
+                        st.rerun()
+
         st.divider()
 
         # ── Manual Override ───────────────────────────────────────────────
@@ -842,21 +936,19 @@ def render_sidebar(context: dict, result) -> None:
         )
         if override_on != bool(prefs.get("override_active", 0)):
             if override_on:
-                # When enabling: ensure we have an image to override with
-                all_imgs = get_all_images()
+                all_imgs = cached_get_all_images()
                 if not all_imgs:
                     st.warning("No images in library. Upload one first to use Manual Override.")
                     st.rerun()
                     return
-                # Set first image as override target
                 update_preferences(override_active=1, override_image_id=all_imgs[0]["id"])
             else:
-                # When disabling: clear override
                 update_preferences(override_active=0, override_image_id=None)
             st.rerun()
 
         # ── Refresh ────────────────────────────────────────────────────────
         if st.button("↺  Refresh Now", use_container_width=True):
+            _invalidate_caches()
             st.rerun()
 
         st.divider()
@@ -887,24 +979,15 @@ def render_sidebar(context: dict, result) -> None:
                 )
 
                 with st.spinner("Analysing with Gemini…"):
-                    result_ai = analyze_image(cloud["secure_url"])
+                    r = _run_analysis(image_id, cloud["secure_url"])
 
-                if result_ai.success:
-                    from database.queries import update_image_analysis
-                    update_image_analysis(
-                        image_id=image_id,
-                        description=result_ai.description,
-                        primary_mood=result_ai.primary_mood,
-                        optimal_time=result_ai.optimal_time,
-                        base_score=result_ai.base_score,
-                        dominant_colors=result_ai.dominant_colors,
-                        tags=result_ai.tags,
-                    )
-                    st.success(f"Analysed! Mood: {result_ai.primary_mood} · Time: {result_ai.optimal_time}")
+                if r.success:
+                    st.success(f"Analysed! Mood: {r.primary_mood} · Time: {r.optimal_time}")
                 else:
-                    st.error(f"Analysis failed: {result_ai.error_message}")
+                    st.error(f"Analysis failed: {r.error_message}")
                     st.info("Image saved — you can re-analyse later.")
 
+                _invalidate_caches()
                 time.sleep(1)
                 st.rerun()
 
@@ -913,73 +996,316 @@ def render_sidebar(context: dict, result) -> None:
             url_input  = st.text_input("Image URL", placeholder="https://…")
             url_title  = st.text_input("Title", placeholder="e.g. Aurora Borealis", key="url_title")
             if url_input and st.button("Add & Analyse URL", use_container_width=True):
-                with st.spinner("Analysing with Gemini…"):
-                    result_ai = analyze_image(url_input)
-
                 image_id = add_image(title=url_title or url_input[:40], image_url=url_input)
-                if result_ai.success:
-                    from database.queries import update_image_analysis
-                    update_image_analysis(
-                        image_id=image_id,
-                        description=result_ai.description,
-                        primary_mood=result_ai.primary_mood,
-                        optimal_time=result_ai.optimal_time,
-                        base_score=result_ai.base_score,
-                        dominant_colors=result_ai.dominant_colors,
-                        tags=result_ai.tags,
-                    )
-                    st.success(f"Added! Mood: {result_ai.primary_mood}")
+                with st.spinner("Analysing with Gemini…"):
+                    r = _run_analysis(image_id, url_input)
+                if r.success:
+                    st.success(f"Added! Mood: {r.primary_mood}")
                 else:
                     st.warning("Saved without analysis. AI call failed.")
+                _invalidate_caches()
                 time.sleep(1)
                 st.rerun()
 
         st.divider()
 
-        # ── Library ────────────────────────────────────────────────────────
+        # ── Image Library with Search & Filtering (Enhancements 1 & 2) ───
         with st.expander("🖼  Image Library", expanded=False):
-            images = get_all_images()
+            # Search & Filter controls
+            lib_search = st.text_input(
+                "Search", placeholder="Search title or tags…",
+                key="lib_search", label_visibility="collapsed",
+            )
+            filt_col1, filt_col2 = st.columns(2)
+            with filt_col1:
+                mood_filter = st.selectbox(
+                    "Mood", ["All", "calm", "energetic", "joyful", "melancholic", "mysterious", "neutral"],
+                    key="lib_mood_filter", label_visibility="collapsed",
+                )
+            with filt_col2:
+                time_filter = st.selectbox(
+                    "Time", ["All", "dawn", "morning", "afternoon", "evening", "night", "any"],
+                    key="lib_time_filter", label_visibility="collapsed",
+                )
+
+            # Fetch images (filtered or all)
+            has_filter = lib_search or mood_filter != "All" or time_filter != "All"
+            if has_filter:
+                images = search_images(
+                    text=lib_search,
+                    mood=mood_filter if mood_filter != "All" else "",
+                    time_period=time_filter if time_filter != "All" else "",
+                )
+            else:
+                images = cached_get_all_images()
+
+            st.caption(f"{len(images)} image{'s' if len(images) != 1 else ''}")
+
             if not images:
-                st.caption("No images yet — upload one above.")
-            for img in images:
-                analyzed = bool(img.get("is_analyzed"))
-                col1, col2, col3 = st.columns([3, 1, 1])
-                with col1:
-                    mood = img.get("primary_mood", "—")
-                    tag  = "✓" if analyzed else "…"
-                    st.markdown(
-                        f"<p style='font-size:0.72rem;margin:0;font-weight:300'>"
-                        f"{tag} {img.get('title') or 'Untitled'}</p>"
-                        f"<p style='font-size:0.58rem;color:rgba(255,255,255,0.3);margin:0'>"
-                        f"{mood}</p>",
-                        unsafe_allow_html=True,
-                    )
-                with col2:
-                    if not analyzed:
-                        if st.button("↺", key=f"re_{img['id']}", help="Re-analyse with Gemini"):
-                            src = img.get("image_url") or ""
-                            if src:
-                                with st.spinner("Analysing…"):
-                                    r = analyze_image(src)
-                                if r.success:
-                                    from database.queries import update_image_analysis
-                                    update_image_analysis(
-                                        image_id=img["id"],
-                                        description=r.description,
-                                        primary_mood=r.primary_mood,
-                                        optimal_time=r.optimal_time,
-                                        base_score=r.base_score,
-                                        dominant_colors=r.dominant_colors,
-                                        tags=r.tags,
-                                    )
-                                    st.success(f"{r.primary_mood} · {r.optimal_time}")
-                                else:
-                                    st.error(r.error_message[:60])
-                                st.rerun()
-                with col3:
-                    if st.button("×", key=f"del_{img['id']}", help="Remove"):
-                        deactivate_image(img["id"])
+                st.caption("No images match — upload one above.")
+            else:
+                # Bulk selection controls
+                if "selected_ids" not in st.session_state:
+                    st.session_state.selected_ids = set()
+
+                sa_col, da_col = st.columns(2)
+                with sa_col:
+                    if st.button("Select All", key="sel_all", use_container_width=True):
+                        st.session_state.selected_ids = {img["id"] for img in images}
                         st.rerun()
+                with da_col:
+                    if st.button("Deselect All", key="desel_all", use_container_width=True):
+                        st.session_state.selected_ids = set()
+                        st.rerun()
+
+                # Image list with checkboxes
+                for img in images:
+                    analyzed = bool(img.get("is_analyzed"))
+                    cb_col, info_col, act_col = st.columns([0.5, 3, 1.5])
+                    with cb_col:
+                        checked = st.checkbox(
+                            "sel", value=img["id"] in st.session_state.selected_ids,
+                            key=f"cb_{img['id']}", label_visibility="collapsed",
+                        )
+                        if checked:
+                            st.session_state.selected_ids.add(img["id"])
+                        else:
+                            st.session_state.selected_ids.discard(img["id"])
+                    with info_col:
+                        mood = img.get("primary_mood", "—")
+                        tag  = "✓" if analyzed else "…"
+                        err  = img.get("analysis_error", "")
+                        err_badge = f" <span style='color:#f87171'>✗</span>" if err else ""
+                        st.markdown(
+                            f"<p style='font-size:0.72rem;margin:0;font-weight:300'>"
+                            f"{tag} {img.get('title') or 'Untitled'}{err_badge}</p>"
+                            f"<p style='font-size:0.58rem;color:rgba(255,255,255,0.3);margin:0'>"
+                            f"{mood}</p>",
+                            unsafe_allow_html=True,
+                        )
+                    with act_col:
+                        btn_cols = st.columns(2)
+                        with btn_cols[0]:
+                            if not analyzed:
+                                if st.button("↺", key=f"re_{img['id']}", help="Re-analyse"):
+                                    src = img.get("image_url") or ""
+                                    if src:
+                                        with st.spinner("Analysing…"):
+                                            r = _run_analysis(img["id"], src)
+                                        if r.success:
+                                            st.success(f"{r.primary_mood}")
+                                        else:
+                                            st.error(r.error_message[:40])
+                                        _invalidate_caches()
+                                        st.rerun()
+                        with btn_cols[1]:
+                            if st.button("×", key=f"del_{img['id']}", help="Remove"):
+                                deactivate_image(img["id"])
+                                st.session_state.selected_ids.discard(img["id"])
+                                _invalidate_caches()
+                                st.rerun()
+
+                # Bulk action buttons
+                selected = st.session_state.selected_ids
+                if selected:
+                    st.warning(f"{len(selected)} selected")
+                    b1, b2 = st.columns(2)
+
+                    with b1:
+                        if "confirm_bulk_delete" not in st.session_state:
+                            st.session_state.confirm_bulk_delete = False
+
+                        if not st.session_state.confirm_bulk_delete:
+                            if st.button("Delete Selected", key="bulk_del", use_container_width=True):
+                                st.session_state.confirm_bulk_delete = True
+                                st.rerun()
+                        else:
+                            st.error(f"Delete {len(selected)} images?")
+                            c1, c2 = st.columns(2)
+                            with c1:
+                                if st.button("Confirm", key="confirm_del"):
+                                    deactivate_images(list(selected))
+                                    st.session_state.selected_ids = set()
+                                    st.session_state.confirm_bulk_delete = False
+                                    _invalidate_caches()
+                                    st.toast(f"Deleted {len(selected)} images")
+                                    st.rerun()
+                            with c2:
+                                if st.button("Cancel", key="cancel_del"):
+                                    st.session_state.confirm_bulk_delete = False
+                                    st.rerun()
+
+                    with b2:
+                        if st.button("Re-analyse Selected", key="bulk_re", use_container_width=True):
+                            sel_imgs = [i for i in images if i["id"] in selected]
+                            progress = st.progress(0)
+                            for idx, si in enumerate(sel_imgs):
+                                src = si.get("image_url") or ""
+                                if src:
+                                    _run_analysis(si["id"], src)
+                                progress.progress((idx + 1) / len(sel_imgs))
+                            _invalidate_caches()
+                            st.toast(f"Re-analysed {len(sel_imgs)} images")
+                            st.session_state.selected_ids = set()
+                            st.rerun()
+
+        # ── Image Gallery Preview (Enhancement 3) ────────────────────────
+        with st.expander("🎨  Gallery View", expanded=False):
+            gallery_imgs = cached_get_all_images()
+            if not gallery_imgs:
+                st.caption("No images yet.")
+            else:
+                MOOD_COLORS = {
+                    "calm": "#60a5fa", "energetic": "#fbbf24", "joyful": "#34d399",
+                    "melancholic": "#c084fc", "mysterious": "#818cf8", "neutral": "#94a3b8",
+                }
+                cols = st.columns(3)
+                for i, gimg in enumerate(gallery_imgs):
+                    with cols[i % 3]:
+                        url = gimg.get("image_url", "")
+                        if url:
+                            st.image(url, width=90)
+                        mood = gimg.get("primary_mood", "neutral")
+                        analyzed = bool(gimg.get("is_analyzed"))
+                        color = MOOD_COLORS.get(mood, "#94a3b8")
+                        status = "✓" if analyzed else "…"
+                        st.markdown(
+                            f"<p style='font-size:0.55rem;margin:0;text-align:center'>"
+                            f"<span style='color:{color}'>{status} {mood}</span></p>",
+                            unsafe_allow_html=True,
+                        )
+                        if st.button("Display", key=f"gal_{gimg['id']}", use_container_width=True):
+                            update_preferences(override_active=1, override_image_id=gimg["id"])
+                            st.toast(f"Displaying: {gimg.get('title', 'Image')}")
+                            st.rerun()
+
+        st.divider()
+
+        # ── Image Scheduling (Enhancement 9) ─────────────────────────────
+        with st.expander("🕓  Image Scheduling", expanded=False):
+            sched_imgs = cached_get_all_images()
+            if not sched_imgs:
+                st.caption("No images to schedule.")
+            else:
+                sched_target = st.selectbox(
+                    "Select image",
+                    options=sched_imgs,
+                    format_func=lambda x: x.get("title") or "Untitled",
+                    key="sched_image_select",
+                    label_visibility="collapsed",
+                )
+                if sched_target:
+                    sid = sched_target["id"]
+                    current_window = sched_target.get("time_window") or "any"
+
+                    s_start = st.date_input("Start date", value=None, key=f"sched_s_{sid}")
+                    s_end = st.date_input("End date", value=None, key=f"sched_e_{sid}")
+
+                    all_periods = ["dawn", "morning", "afternoon", "evening", "night"]
+                    current_periods = all_periods if current_window == "any" else [
+                        p.strip() for p in current_window.split(",") if p.strip() in all_periods
+                    ]
+                    s_window = st.multiselect(
+                        "Show during", all_periods,
+                        default=current_periods,
+                        key=f"sched_w_{sid}",
+                    )
+
+                    if st.button("Save Schedule", key=f"sched_save_{sid}", use_container_width=True):
+                        window_str = "any" if set(s_window) == set(all_periods) or not s_window else ",".join(s_window)
+                        update_image_schedule(
+                            sid,
+                            str(s_start) if s_start else "",
+                            str(s_end) if s_end else "",
+                            window_str,
+                        )
+                        _invalidate_caches()
+                        st.toast("Schedule saved!")
+                        st.rerun()
+
+        st.divider()
+
+        # ── Analytics Dashboard (Enhancement 4) ──────────────────────────
+        with st.expander("📊  Analytics", expanded=False):
+            analytics_view = st.selectbox(
+                "View", ["Interactions", "Mood Trends", "Usage Patterns"],
+                key="analytics_view", label_visibility="collapsed",
+            )
+
+            if analytics_view == "Interactions":
+                data = cached_analytics_summary()
+                if data:
+                    df = pd.DataFrame(data)
+                    if not df.empty and "likes" in df.columns:
+                        chart_df = df.set_index("title")[["likes", "skips"]].head(10)
+                        st.bar_chart(chart_df)
+                        # Leaderboards
+                        st.markdown("<p style='font-size:0.6rem;color:rgba(255,255,255,0.4);"
+                                    "margin:8px 0 2px'>Most Liked</p>", unsafe_allow_html=True)
+                        for _, row in df.nlargest(3, "likes").iterrows():
+                            st.caption(f"👍 {row['likes']} — {row['title']}")
+                        st.markdown("<p style='font-size:0.6rem;color:rgba(255,255,255,0.4);"
+                                    "margin:8px 0 2px'>Most Skipped</p>", unsafe_allow_html=True)
+                        for _, row in df.nlargest(3, "skips").iterrows():
+                            st.caption(f"⊘ {row['skips']} — {row['title']}")
+                else:
+                    st.caption("No interaction data yet.")
+
+            elif analytics_view == "Mood Trends":
+                data = cached_mood_over_time(30)
+                if data:
+                    df = pd.DataFrame(data)
+                    if not df.empty:
+                        pivot = df.pivot_table(
+                            index="date", columns="mood", values="count",
+                            fill_value=0, aggfunc="sum",
+                        )
+                        st.area_chart(pivot)
+                else:
+                    st.caption("No mood history yet.")
+
+            elif analytics_view == "Usage Patterns":
+                data = cached_hourly_usage()
+                if data:
+                    df = pd.DataFrame(data)
+                    if not df.empty:
+                        st.bar_chart(df.set_index("hour")["count"])
+                else:
+                    st.caption("No usage data yet.")
+
+        # ── AI Analysis Settings (Enhancement 10) ────────────────────────
+        with st.expander("🧠  AI Analysis Settings", expanded=False):
+            config = get_display_config()
+
+            depth = st.radio(
+                "Analysis Depth",
+                ["Quick", "Standard"],
+                index=0 if config.get("analysis_depth") == "quick" else 1,
+                key="analysis_depth_radio",
+                horizontal=True,
+            )
+
+            focus_options = ["composition", "color_palette", "emotional_depth",
+                             "lighting", "texture", "symbolism"]
+            current_focus = [f for f in config.get("analysis_focus", "").split(",") if f in focus_options]
+            focus = st.multiselect("Focus Areas", focus_options, default=current_focus, key="analysis_focus_ms")
+
+            custom = st.text_area(
+                "Custom Instructions",
+                value=config.get("custom_prompt", ""),
+                placeholder="e.g. Pay attention to architectural elements",
+                key="custom_prompt_ta",
+                height=68,
+            )
+
+            if st.button("Save AI Settings", use_container_width=True, key="save_ai_settings"):
+                update_display_config(
+                    analysis_depth=depth.lower(),
+                    analysis_focus=",".join(focus),
+                    custom_prompt=custom,
+                )
+                st.toast("AI settings saved!")
+                st.rerun()
 
         st.divider()
 

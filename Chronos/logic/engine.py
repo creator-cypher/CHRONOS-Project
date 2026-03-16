@@ -21,6 +21,7 @@ from typing import Optional
 
 from database.queries import (
     get_analyzed_images,
+    get_scheduled_images,
     get_interaction_counts,
     get_preferences,
     get_recently_shown_ids,
@@ -114,8 +115,17 @@ def select_best_image(context: dict) -> Optional[SelectionResult]:
             _write_log(result, context)
             return result
 
-    # ── 2. Candidate pool ─────────────────────────────────────────────────
-    candidates = get_analyzed_images()
+    # ── 2. Candidate pool (with scheduling filter) ────────────────────────
+    from datetime import datetime
+    now = datetime.now()
+    period = context.get("time_period", "")
+    try:
+        candidates = get_scheduled_images(
+            current_date=now.strftime("%Y-%m-%d"),
+            current_period=period,
+        )
+    except Exception:
+        candidates = get_analyzed_images()
     if not candidates:
         logger.warning("No analysed images available.")
         return None

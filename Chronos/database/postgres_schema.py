@@ -59,10 +59,18 @@ class Image(Base):
     is_analyzed = Column(Boolean, nullable=False, default=False)
     is_active = Column(Boolean, nullable=False, default=True)
     uploaded_at = Column(DateTime(timezone=True), nullable=False, default=datetime.now(timezone.utc))
+    # Error recovery (Enhancement 7)
+    analysis_error = Column(Text, nullable=False, default="")
+    retry_count = Column(Integer, nullable=False, default=0)
+    # Image scheduling (Enhancement 9)
+    schedule_start = Column(DateTime(timezone=True), nullable=True)
+    schedule_end = Column(DateTime(timezone=True), nullable=True)
+    time_window = Column(String(100), nullable=False, default="any")
 
     __table_args__ = (
         Index("idx_mood_time", "primary_mood", "optimal_time"),
         Index("idx_active_analyzed", "is_active", "is_analyzed"),
+        Index("idx_images_title", "title"),
     )
 
 
@@ -78,6 +86,9 @@ class ImageTag(Base):
 
     __table_args__ = (
         UniqueConstraint("image_id", "name", name="uq_image_tag"),
+        Index("idx_tags_image_id", "image_id"),
+        Index("idx_tags_name", "name"),
+        Index("idx_tags_category", "category"),
     )
 
 
@@ -112,6 +123,7 @@ class ContextLog(Base):
 
     __table_args__ = (
         Index("idx_log_timestamp", "timestamp", postgresql_using="btree"),
+        Index("idx_log_image_id", "selected_image_id"),
     )
 
 
@@ -125,7 +137,23 @@ class DisplayConfig(Base):
     show_reasoning_overlay = Column(Boolean, nullable=False, default=True)
     overlay_auto_hide_seconds = Column(Integer, nullable=False, default=8)
     night_brightness = Column(Float, nullable=False, default=0.7)
+    # Vision API prompt config (Enhancement 10)
+    analysis_depth = Column(String(20), nullable=False, default="standard")
+    analysis_focus = Column(Text, nullable=False, default="")
+    custom_prompt = Column(Text, nullable=False, default="")
     updated_at = Column(DateTime(timezone=True), nullable=False, default=datetime.now(timezone.utc))
+
+
+class Preset(Base):
+    """Saved mood/sensitivity presets for quick switching"""
+    __tablename__ = "presets"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(100), nullable=False, unique=True)
+    mood = Column(String(50), nullable=False, default="calm")
+    sensitivity = Column(String(20), nullable=False, default="medium")
+    is_default = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.now(timezone.utc))
 
 
 class ImageInteraction(Base):
@@ -140,6 +168,7 @@ class ImageInteraction(Base):
     __table_args__ = (
         CheckConstraint("interaction IN ('like', 'skip')", name="ck_interaction_type"),
         Index("idx_interaction_lookup", "image_id", "interaction"),
+        Index("idx_interactions_ts", "timestamp"),
     )
 
 
@@ -160,14 +189,21 @@ def init_database():
     """Create all tables. Safe to call on startup (idempotent)"""
     Base.metadata.create_all(bind=engine)
 
-    # Seed singleton rows
+    # Seed singleton rows and default presets
     db = SessionLocal()
     try:
-        # Ensure singleton rows exist
         if not db.query(UserPreference).filter_by(id=1).first():
             db.add(UserPreference(id=1))
         if not db.query(DisplayConfig).filter_by(id=1).first():
             db.add(DisplayConfig(id=1))
+        # Seed default presets
+        for name, mood, sens in [
+            ("Morning Energy", "energetic", "high"),
+            ("Evening Calm", "calm", "medium"),
+            ("Night Mystery", "mysterious", "high"),
+        ]:
+            if not db.query(Preset).filter_by(name=name).first():
+                db.add(Preset(name=name, mood=mood, sensitivity=sens, is_default=True))
         db.commit()
     finally:
         db.close()

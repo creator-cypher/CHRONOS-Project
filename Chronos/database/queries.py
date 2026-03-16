@@ -139,6 +139,129 @@ def get_tags_for_image(image_id: str) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def search_images(
+    text: str = "",
+    mood: str = "",
+    time_period: str = "",
+    active_only: bool = True,
+) -> list[dict]:
+    """Search images by title/tags, mood, and time period."""
+    conn = get_connection()
+    conditions = []
+    params: list = []
+
+    if active_only:
+        conditions.append("i.is_active = 1")
+
+    if mood:
+        conditions.append("i.primary_mood = ?")
+        params.append(mood)
+
+    if time_period:
+        conditions.append("i.optimal_time = ?")
+        params.append(time_period)
+
+    if text:
+        conditions.append(
+            "(i.title LIKE ? OR EXISTS "
+            "(SELECT 1 FROM image_tags t WHERE t.image_id = i.id AND t.name LIKE ?))"
+        )
+        like = f"%{text}%"
+        params.extend([like, like])
+
+    where = (" WHERE " + " AND ".join(conditions)) if conditions else ""
+    sql = f"SELECT DISTINCT i.* FROM images i{where} ORDER BY i.uploaded_at DESC"
+    rows = conn.execute(sql, params).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def deactivate_images(image_ids: list[str]) -> int:
+    """Soft-delete multiple images. Returns count affected."""
+    if not image_ids:
+        return 0
+    conn = get_connection()
+    placeholders = ",".join("?" for _ in image_ids)
+    cur = conn.execute(
+        f"UPDATE images SET is_active = 0 WHERE id IN ({placeholders})", image_ids
+    )
+    conn.commit()
+    count = cur.rowcount
+    conn.close()
+    return count
+
+
+def get_image_interaction_summary() -> list[dict]:
+    """Aggregated likes/skips per image for analytics."""
+    conn = get_connection()
+    rows = conn.execute(
+        """SELECT i.id, i.title, i.primary_mood,
+                  COALESCE(SUM(CASE WHEN ia.interaction = 'like' THEN 1 ELSE 0 END), 0) as likes,
+                  COALESCE(SUM(CASE WHEN ia.interaction = 'skip' THEN 1 ELSE 0 END), 0) as skips
+           FROM images i
+           LEFT JOIN image_interactions ia ON ia.image_id = i.id
+           WHERE i.is_active = 1
+           GROUP BY i.id, i.title, i.primary_mood
+           ORDER BY likes DESC"""
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_mood_distribution() -> list[dict]:
+    """Count of active images per mood category."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT primary_mood, COUNT(*) as count FROM images "
+        "WHERE is_active = 1 GROUP BY primary_mood ORDER BY count DESC"
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_hourly_usage() -> list[dict]:
+    """Hourly distribution of display decisions from context_logs."""
+    conn = get_connection()
+    rows = conn.execute(
+        """SELECT CAST(strftime('%H', timestamp) AS INTEGER) as hour, COUNT(*) as count
+           FROM context_logs GROUP BY hour ORDER BY hour"""
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_mood_over_time(days: int = 30) -> list[dict]:
+    """Daily mood distribution from context_logs for the last N days."""
+    conn = get_connection()
+    rows = conn.execute(
+        """SELECT date(timestamp) as date, detected_mood as mood, COUNT(*) as count
+           FROM context_logs
+           WHERE timestamp >= datetime('now', ? || ' days')
+           GROUP BY date, mood ORDER BY date""",
+        (f"-{days}",),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_top_images(limit: int = 10) -> list[dict]:
+    """Most displayed images with interaction stats."""
+    conn = get_connection()
+    rows = conn.execute(
+        """SELECT i.id, i.title, i.primary_mood, i.display_count, i.image_url,
+                  COALESCE(SUM(CASE WHEN ia.interaction = 'like' THEN 1 ELSE 0 END), 0) as likes,
+                  COALESCE(SUM(CASE WHEN ia.interaction = 'skip' THEN 1 ELSE 0 END), 0) as skips
+           FROM images i
+           LEFT JOIN image_interactions ia ON ia.image_id = i.id
+           WHERE i.is_active = 1
+           GROUP BY i.id, i.title, i.primary_mood, i.display_count, i.image_url
+           ORDER BY i.display_count DESC LIMIT ?""",
+        (limit,),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
 # ---------------------------------------------------------------------------
 # User Preferences
 # ---------------------------------------------------------------------------
@@ -275,3 +398,157 @@ def get_interaction_counts(image_id: str) -> dict:
     for row in rows:
         counts[row["interaction"]] = row["cnt"]
     return counts
+
+
+# ---------------------------------------------------------------------------
+# Display Config
+# ---------------------------------------------------------------------------
+
+def get_display_config() -> dict:
+    """Retrieves the singleton display configuration."""
+    conn = get_connection()
+    row = conn.execute("SELECT * FROM display_config WHERE id = 1").fetchone()
+    conn.close()
+    return dict(row) if row else {}
+
+
+def update_display_config(**kwargs) -> None:
+    """Updates any subset of display_config fields."""
+    if not kwargs:
+        return
+    fields = ", ".join(f"{k} = ?" for k in kwargs)
+    values = list(kwargs.values()) + [1]
+    conn = get_connection()
+    conn.execute(
+        f"UPDATE display_config SET {fields}, updated_at = datetime('now') WHERE id = ?",
+        values,
+    )
+    conn.commit()
+    conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Presets
+# ---------------------------------------------------------------------------
+
+def get_presets() -> list[dict]:
+    """Returns all saved mood/sensitivity presets."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM presets ORDER BY is_default DESC, name ASC"
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def save_preset(name: str, mood: str, sensitivity: str) -> int:
+    """Creates a new preset. Returns the new ID."""
+    conn = get_connection()
+    cur = conn.execute(
+        "INSERT INTO presets (name, mood, sensitivity) VALUES (?, ?, ?)",
+        (name, mood, sensitivity),
+    )
+    conn.commit()
+    preset_id = cur.lastrowid
+    conn.close()
+    return preset_id
+
+
+def delete_preset(preset_id: int) -> None:
+    conn = get_connection()
+    conn.execute("DELETE FROM presets WHERE id = ?", (preset_id,))
+    conn.commit()
+    conn.close()
+
+
+def apply_preset(preset_id: int) -> None:
+    """Loads preset values into user_preferences."""
+    conn = get_connection()
+    row = conn.execute("SELECT mood, sensitivity FROM presets WHERE id = ?", (preset_id,)).fetchone()
+    if row:
+        conn.execute(
+            "UPDATE user_preferences SET preferred_mood = ?, sensitivity = ?, "
+            "updated_at = datetime('now') WHERE id = 1",
+            (row["mood"], row["sensitivity"]),
+        )
+        conn.commit()
+    conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Error Recovery
+# ---------------------------------------------------------------------------
+
+def get_failed_analyses() -> list[dict]:
+    """Images that failed analysis (is_analyzed=0 with an error recorded)."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM images WHERE is_active = 1 AND is_analyzed = 0 "
+        "AND analysis_error != '' ORDER BY uploaded_at DESC"
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def update_image_error(image_id: str, error: str, retry_count: int) -> None:
+    """Records an analysis failure on an image."""
+    conn = get_connection()
+    conn.execute(
+        "UPDATE images SET analysis_error = ?, retry_count = ? WHERE id = ?",
+        (error, retry_count, image_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Image Scheduling
+# ---------------------------------------------------------------------------
+
+def get_scheduled_images(current_date: str = "", current_period: str = "") -> list[dict]:
+    """
+    Returns analyzed, active images that are within their schedule window.
+    Falls back to get_analyzed_images() behaviour when no scheduling columns exist.
+    """
+    conn = get_connection()
+    conditions = ["i.is_active = 1", "i.is_analyzed = 1"]
+    params: list = []
+
+    if current_date:
+        conditions.append("(i.schedule_start IS NULL OR i.schedule_start <= ?)")
+        conditions.append("(i.schedule_end IS NULL OR i.schedule_end >= ?)")
+        params.extend([current_date, current_date])
+
+    if current_period:
+        conditions.append(
+            "(i.time_window = 'any' OR i.time_window LIKE ?)"
+        )
+        params.append(f"%{current_period}%")
+
+    where = " WHERE " + " AND ".join(conditions)
+    sql = f"SELECT i.* FROM images i{where} ORDER BY i.last_displayed ASC"
+
+    try:
+        rows = conn.execute(sql, params).fetchall()
+    except Exception:
+        # Fallback if scheduling columns don't exist yet
+        rows = conn.execute(
+            "SELECT * FROM images WHERE is_active = 1 AND is_analyzed = 1 "
+            "ORDER BY last_displayed ASC NULLS FIRST"
+        ).fetchall()
+
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def update_image_schedule(
+    image_id: str, schedule_start: str, schedule_end: str, time_window: str
+) -> None:
+    """Sets scheduling constraints on an image."""
+    conn = get_connection()
+    conn.execute(
+        "UPDATE images SET schedule_start = ?, schedule_end = ?, time_window = ? WHERE id = ?",
+        (schedule_start or None, schedule_end or None, time_window, image_id),
+    )
+    conn.commit()
+    conn.close()

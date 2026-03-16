@@ -100,6 +100,8 @@ def upload_image(source: bytes | str | Path, filename: str = "") -> dict:
     if not _ensure_configured():
         return _err("CLOUDINARY_URL not configured in environment.")
 
+    import time as _time
+
     try:
         import cloudinary.uploader
 
@@ -119,23 +121,35 @@ def upload_image(source: bytes | str | Path, filename: str = "") -> dict:
             stem = Path(filename).stem[:80]  # Cloudinary limit
             kwargs["public_id"] = f"chronos/{stem}"
 
-        # Accept bytes, Path, or string (URL / local path)
-        if isinstance(source, bytes):
-            result = cloudinary.uploader.upload(source, **kwargs)
-        elif isinstance(source, Path):
-            result = cloudinary.uploader.upload(str(source), **kwargs)
-        else:
-            result = cloudinary.uploader.upload(source, **kwargs)
+        # Retry with backoff (2 retries, 1s backoff)
+        last_error = ""
+        for attempt in range(3):
+            try:
+                # Accept bytes, Path, or string (URL / local path)
+                if isinstance(source, bytes):
+                    result = cloudinary.uploader.upload(source, **kwargs)
+                elif isinstance(source, Path):
+                    result = cloudinary.uploader.upload(str(source), **kwargs)
+                else:
+                    result = cloudinary.uploader.upload(source, **kwargs)
 
-        return {
-            "success":    True,
-            "secure_url": result.get("secure_url", ""),
-            "public_id":  result.get("public_id", ""),
-            "width":      result.get("width", 0),
-            "height":     result.get("height", 0),
-            "format":     result.get("format", ""),
-            "error":      "",
-        }
+                return {
+                    "success":    True,
+                    "secure_url": result.get("secure_url", ""),
+                    "public_id":  result.get("public_id", ""),
+                    "width":      result.get("width", 0),
+                    "height":     result.get("height", 0),
+                    "format":     result.get("format", ""),
+                    "error":      "",
+                }
+            except Exception as exc:
+                last_error = str(exc)
+                logger.warning("Cloudinary upload attempt %d/3 failed: %s", attempt + 1, exc)
+                if attempt < 2:
+                    _time.sleep(1)
+
+        logger.error("Cloudinary upload failed after 3 retries: %s", last_error)
+        return _err(last_error)
 
     except Exception as exc:
         logger.error("Cloudinary upload failed: %s", exc, exc_info=True)

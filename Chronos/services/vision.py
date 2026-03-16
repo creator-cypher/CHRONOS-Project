@@ -25,6 +25,8 @@ logger = logging.getLogger(__name__)
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 GEMINI_MODEL   = "gemini-2.5-flash"
 
+MAX_RETRIES = 3
+
 ANALYSIS_PROMPT = """
 You are an expert art director for a luxury ambient display system called Chronos.
 Analyse the provided image and return a JSON object with EXACTLY this structure:
@@ -44,6 +46,21 @@ Generate 5-10 tags. Return ONLY the JSON — no markdown, no explanation.
 """.strip()
 
 
+def build_prompt(depth: str = "standard", focus: str = "", custom: str = "") -> str:
+    """Build an analysis prompt with configurable depth and focus areas."""
+    base = ANALYSIS_PROMPT
+    if depth == "quick":
+        base = base.replace("2-3 sentence", "1 sentence")
+        base = base.replace("5-10 tags", "3-5 tags")
+    if focus:
+        areas = [a.strip() for a in focus.split(",") if a.strip()]
+        if areas:
+            base += f"\n\nFocus your analysis on: {', '.join(areas)}."
+    if custom:
+        base += f"\n\nAdditional instructions: {custom}"
+    return base
+
+
 @dataclass
 class AnalysisResult:
     success:         bool       = False
@@ -56,13 +73,23 @@ class AnalysisResult:
     error_message:   str        = ""
 
 
-def analyze_image(source: str | Path | bytes) -> AnalysisResult:
+def analyze_image(
+    source: str | Path | bytes,
+    depth: str = "standard",
+    focus: str = "",
+    custom: str = "",
+) -> AnalysisResult:
     """
-    Sends an image to Gemini 2.0 Flash and returns structured metadata.
+    Sends an image to Gemini 2.5 Flash and returns structured metadata.
 
     Accepts: local file path, HTTPS URL, or raw bytes.
     Returns: AnalysisResult (always — never raises).
+
+    Retries up to MAX_RETRIES with exponential backoff on transient failures.
+    Supports configurable analysis depth and focus via build_prompt().
     """
+    import time as _time
+
     if not GEMINI_API_KEY:
         return AnalysisResult(success=False, error_message="GEMINI_API_KEY not set in .env")
 
@@ -72,20 +99,31 @@ def analyze_image(source: str | Path | bytes) -> AnalysisResult:
     except ImportError:
         return AnalysisResult(success=False, error_message="Run: pip install google-genai")
 
-    try:
-        client     = genai.Client(api_key=GEMINI_API_KEY)
-        image_part = _build_part(source, gt)
+    prompt = build_prompt(depth, focus, custom)
+    temperature = 0.1 if depth == "quick" else 0.2
+    max_tokens = 2048 if depth == "quick" else 4096
 
-        response = client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=[image_part, ANALYSIS_PROMPT],
-            config=gt.GenerateContentConfig(temperature=0.2, max_output_tokens=4096),
-        )
-        return _parse(response.text.strip())
+    last_error = ""
+    for attempt in range(MAX_RETRIES):
+        try:
+            client     = genai.Client(api_key=GEMINI_API_KEY)
+            image_part = _build_part(source, gt)
 
-    except Exception as exc:
-        logger.error("Gemini call failed: %s", exc, exc_info=True)
-        return AnalysisResult(success=False, error_message=str(exc))
+            response = client.models.generate_content(
+                model=GEMINI_MODEL,
+                contents=[image_part, prompt],
+                config=gt.GenerateContentConfig(temperature=temperature, max_output_tokens=max_tokens),
+            )
+            return _parse(response.text.strip())
+
+        except Exception as exc:
+            last_error = str(exc)
+            logger.warning("Gemini attempt %d/%d failed: %s", attempt + 1, MAX_RETRIES, exc)
+            if attempt < MAX_RETRIES - 1:
+                _time.sleep(2 ** attempt)  # exponential backoff: 1s, 2s, 4s
+
+    logger.error("Gemini call failed after %d retries: %s", MAX_RETRIES, last_error)
+    return AnalysisResult(success=False, error_message=last_error)
 
 
 def _build_part(source, gt):
