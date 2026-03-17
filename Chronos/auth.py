@@ -119,9 +119,17 @@ html, body {
     z-index: 0;
 }
 
-.main .block-container {
-    max-width: 480px !important;
-    padding-top: 10vh !important;
+.main .block-container,
+[data-testid="stMainBlockContainer"],
+[data-testid="stMain"] > div,
+.stMainBlockContainer,
+section.main > div.block-container {
+    max-width: 520px !important;
+    padding-top: 12vh !important;
+    padding-left: 1.5rem !important;
+    padding-right: 1.5rem !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
     position: relative;
     z-index: 1;
 }
@@ -133,7 +141,7 @@ html, body {
     -webkit-backdrop-filter: blur(40px) saturate(200%) !important;
     border: 1px solid rgba(255,255,255,0.08) !important;
     border-radius: 20px !important;
-    padding: 32px 28px !important;
+    padding: 40px 36px !important;
     box-shadow: 0 16px 64px rgba(0,0,0,0.6),
                 inset 0 1px 0 rgba(255,255,255,0.05) !important;
 }
