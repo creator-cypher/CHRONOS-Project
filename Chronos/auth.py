@@ -37,7 +37,12 @@ def hash_password(password: str) -> str:
 
 def verify_password(password: str, hashed: str) -> bool:
     """Verify a plaintext password against its bcrypt hash."""
-    return bcrypt.checkpw(password.encode("utf-8"), hashed.encode("utf-8"))
+    try:
+        # Ensure hashed is bytes (convert if it's a string)
+        hashed_bytes = hashed.encode("utf-8") if isinstance(hashed, str) else hashed
+        return bcrypt.checkpw(password.encode("utf-8"), hashed_bytes)
+    except Exception:
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -266,16 +271,20 @@ def _render_login() -> None:
             if not username or not password:
                 st.error("Please enter both username and password.")
             else:
-                user = get_user_by_username(username.strip().lower())
-                if user and verify_password(password, user["password_hash"]):
-                    st.session_state["authenticated"] = True
-                    st.session_state["user_id"] = user["id"]
-                    st.session_state["username"] = user["username"]
-                    st.session_state["user_name"] = user["name"]
-                    st.session_state["profile_type"] = user["profile_type"]
-                    st.rerun()
-                else:
-                    st.error("Invalid username or password.")
+                try:
+                    user = get_user_by_username(username.strip().lower())
+                    if user and verify_password(password, user["password_hash"]):
+                        st.session_state["authenticated"] = True
+                        st.session_state["user_id"] = user["id"]
+                        st.session_state["username"] = user["username"]
+                        st.session_state["user_name"] = user["name"]
+                        st.session_state["profile_type"] = user["profile_type"]
+                        st.session_state["auth_page"] = "login"  # Reset auth page
+                        st.rerun()
+                    else:
+                        st.error("Invalid username or password.")
+                except Exception as e:
+                    st.error(f"Login error: {str(e)}")
 
     # Toggle to registration
     st.markdown("<div style='text-align:center;margin-top:12px'>", unsafe_allow_html=True)
@@ -334,20 +343,24 @@ def _render_register() -> None:
                 for e in errors:
                     st.error(e)
             else:
-                user_id = create_user(
-                    username=username.strip().lower(),
-                    password_hash=hash_password(password),
-                    name=name.strip() or username.strip(),
-                    email=email.strip(),
-                    profile_type=profile_type,
-                )
-                # Auto-login after registration
-                st.session_state["authenticated"] = True
-                st.session_state["user_id"] = user_id
-                st.session_state["username"] = username.strip().lower()
-                st.session_state["user_name"] = name.strip() or username.strip()
-                st.session_state["profile_type"] = profile_type
-                st.rerun()
+                try:
+                    user_id = create_user(
+                        username=username.strip().lower(),
+                        password_hash=hash_password(password),
+                        name=name.strip() or username.strip(),
+                        email=email.strip(),
+                        profile_type=profile_type,
+                    )
+                    # Auto-login after registration
+                    st.session_state["authenticated"] = True
+                    st.session_state["user_id"] = user_id
+                    st.session_state["username"] = username.strip().lower()
+                    st.session_state["user_name"] = name.strip() or username.strip()
+                    st.session_state["profile_type"] = profile_type
+                    st.session_state["auth_page"] = "login"  # Reset auth page
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Registration error: {str(e)}")
 
     # Toggle to login
     st.markdown("<div style='text-align:center;margin-top:12px'>", unsafe_allow_html=True)
