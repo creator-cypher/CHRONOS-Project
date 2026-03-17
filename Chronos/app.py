@@ -878,7 +878,7 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
             if override_active:
                 # Manual mode: show Prev/Next for sequential navigation
                 prev_col, next_col, like_col = st.columns(3)
-                all_imgs = cached_get_all_images(user_id=user_id)
+                all_imgs = cached_get_all_images()
 
                 with prev_col:
                     if st.button("\u276E  Prev", key=f"prev_{img['id']}", use_container_width=True, disabled=len(all_imgs) < 2):
@@ -943,7 +943,7 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
         )
         new_sens = SENS[["Manual", "Balanced", "Full AI"].index(new_sens_idx)]
         if new_sens != current_sens:
-            update_preferences(user_id, sensitivity=new_sens)
+            update_preferences(sensitivity=new_sens)
             st.rerun()
 
         # ── Quick Presets (Enhancement 8) ─────────────────────────────────
@@ -986,14 +986,14 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
         )
         if override_on != bool(prefs.get("override_active", 0)):
             if override_on:
-                all_imgs = cached_get_all_images(user_id=user_id)
+                all_imgs = cached_get_all_images()
                 if not all_imgs:
                     st.warning("No images in library. Upload one first to use Manual Override.")
                     st.rerun()
                     return
-                update_preferences(user_id, override_active=1, override_image_id=all_imgs[0]["id"])
+                update_preferences(override_active=1, override_image_id=all_imgs[0]["id"])
             else:
-                update_preferences(user_id, override_active=0, override_image_id=None)
+                update_preferences(override_active=0, override_image_id=None)
             st.rerun()
 
         # ── Refresh ────────────────────────────────────────────────────────
@@ -1026,7 +1026,6 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                 image_id = add_image(
                     title=title or uploaded.name,
                     image_url=cloud["secure_url"],
-                    user_id=user_id,
                 )
 
                 with st.spinner("Analysing with Gemini…"):
@@ -1047,7 +1046,7 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
             url_input  = st.text_input("Image URL", placeholder="https://…")
             url_title  = st.text_input("Title", placeholder="e.g. Aurora Borealis", key="url_title")
             if url_input and st.button("Add & Analyse URL", use_container_width=True):
-                image_id = add_image(title=url_title or url_input[:40], image_url=url_input, user_id=user_id)
+                image_id = add_image(title=url_title or url_input[:40], image_url=url_input)
                 with st.spinner("Analysing with Gemini…"):
                     r = _run_analysis(image_id, url_input)
                 if r.success:
@@ -1086,10 +1085,9 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                     text=lib_search,
                     mood=mood_filter if mood_filter != "All" else "",
                     time_period=time_filter if time_filter != "All" else "",
-                    user_id=user_id,
                 )
             else:
-                images = cached_get_all_images(user_id=user_id)
+                images = cached_get_all_images()
 
             st.caption(f"{len(images)} image{'s' if len(images) != 1 else ''}")
 
@@ -1203,7 +1201,7 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
 
         # ── Image Gallery Preview (Enhancement 3) ────────────────────────
         with st.expander("\u29C9  Gallery View", expanded=False):
-            gallery_imgs = cached_get_all_images(user_id=user_id)
+            gallery_imgs = cached_get_all_images()
             if not gallery_imgs:
                 st.caption("No images yet.")
             else:
@@ -1227,7 +1225,7 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                             unsafe_allow_html=True,
                         )
                         if st.button("Display", key=f"gal_{gimg['id']}", use_container_width=True):
-                            update_preferences(user_id, override_active=1, override_image_id=gimg["id"])
+                            update_preferences(override_active=1, override_image_id=gimg["id"])
                             st.toast(f"Displaying: {gimg.get('title', 'Image')}")
                             st.rerun()
 
@@ -1235,7 +1233,7 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
 
         # ── Image Scheduling (Enhancement 9) ─────────────────────────────
         with st.expander("\u29D6  Image Scheduling", expanded=False):
-            sched_imgs = cached_get_all_images(user_id=user_id)
+            sched_imgs = cached_get_all_images()
             if not sched_imgs:
                 st.caption("No images to schedule.")
             else:
@@ -1285,7 +1283,7 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
             )
 
             if analytics_view == "Interactions":
-                data = cached_analytics_summary(user_id=user_id)
+                data = cached_analytics_summary()
                 if data:
                     df = pd.DataFrame(data)
                     if not df.empty and "likes" in df.columns:
@@ -1367,7 +1365,7 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
 
         # ── Recent History ─────────────────────────────────────────────────
         with st.expander("\u2630  Recent History", expanded=False):
-            logs = get_recent_logs(limit=8, user_id=user_id)
+            logs = get_recent_logs(limit=8)
             if not logs:
                 st.caption("No decisions recorded yet.")
             for log in logs:
@@ -1384,7 +1382,7 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                 )
 
             # ── Export logs as CSV ────────────────────────────────────────
-            all_logs = get_recent_logs(limit=500, user_id=user_id)
+            all_logs = get_recent_logs(limit=500)
             if all_logs:
                 buf = io.StringIO()
                 writer = csv.writer(buf)
@@ -1429,15 +1427,14 @@ PLACEHOLDER_CSS_URL = (
 
 def render_empty_state() -> None:
     """Shown when no analysed images exist in the database."""
-    moon_icon = bi('moon-stars', '2.5rem', 'rgba(255,255,255,0.6)')
-    st.markdown(f"""
+    st.markdown("""
     <div style="
         position: fixed; top: 50%; left: 50%;
         transform: translate(-50%, -50%);
         text-align: center; z-index: 10;
         animation: fadeInUp 1s ease forwards;
     ">
-      <p style="font-size:2.5rem;margin:0">{moon_icon}</p>
+      <p style="font-size:2.5rem;margin:0">{bi('moon-stars', '2.5rem', 'rgba(255,255,255,0.6)')}</p>
       <p style="font-size:1rem;font-weight:200;letter-spacing:0.1em;margin:12px 0 6px">
         Chronos is ready.
       </p>
@@ -1457,44 +1454,32 @@ def render_empty_state() -> None:
 def main() -> None:
     """
     Orchestrates the full Chronos display loop:
-      0. Authenticate user (login/register gate)
       1. Determine context (time of day, mood)
-      2. Select the best image via the Decision Engine (user-scoped, profile-aware)
-      3. Inject the image as the full-viewport CSS background with themed overrides
+      2. Select the best image via the Decision Engine
+      3. Inject the image as the full-viewport CSS background
       4. Render the status bar, reasoning overlay, and sidebar controls
     """
-    # ── 0. Authentication gate ─────────────────────────────────────────────
-    init_auth_state()
-
-    if not st.session_state.get("authenticated"):
-        render_auth_page()
-        return
-
-    user_id      = st.session_state.get("user_id", "")
-    profile_type = st.session_state.get("profile_type", "Standard")
-
-    # ── 1. Context & Engine ────────────────────────────────────────────────
     context = get_current_context()
-    result  = select_best_image(context, user_id=user_id, profile_type=profile_type)
+    result  = select_best_image(context)
 
-    # ── 2. Determine background ───────────────────────────────────────────
+    # ── Determine background ──────────────────────────────────────────────
     if result and result.image:
         css_url = get_image_css_url(result.image)
     else:
         css_url = PLACEHOLDER_CSS_URL
 
-    # ── 3. Inject CSS (includes the background image + profile theme) ─────
-    inject_global_css(css_url, context.get("time_period", "day"), profile_type=profile_type)
+    # ── Inject CSS (includes the background image) ────────────────────────
+    inject_global_css(css_url, context.get("time_period", "day"))
 
     # ── Persistent sidebar FAB (JS-injected, immune to CSS transform issues)
     inject_sidebar_fab()
 
-    # ── 4. Fixed UI elements (rendered as HTML, position:fixed) ───────────
+    # ── Fixed UI elements (rendered as HTML, position:fixed) ─────────────
     render_status_bar(context)
     render_reasoning_overlay(result)
 
     # ── Sidebar ───────────────────────────────────────────────────────────
-    render_sidebar(context, result, user_id=user_id, profile_type=profile_type)
+    render_sidebar(context, result)
 
     # ── Empty state ───────────────────────────────────────────────────────
     if result is None:
