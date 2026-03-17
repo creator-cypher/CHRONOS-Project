@@ -60,6 +60,25 @@ SEASONALITY_MOODS: dict[str, dict[str, float]] = {
     "autumn":   {"mysterious": 1.15, "melancholic": 1.10, "calm": 1.05, "neutral": 1.0, "energetic": 0.95, "joyful": 0.9},
 }
 
+# ---------------------------------------------------------------------------
+# Kids Safety Filter — Responsible AI content curation
+# ---------------------------------------------------------------------------
+
+KIDS_SAFE_TAGS: set[str] = {
+    "bright", "cartoon", "nature", "educational", "colorful", "playful",
+    "animal", "fun", "cheerful", "sunshine", "friendly", "whimsical",
+    "landscape", "flower", "garden", "ocean", "sky", "rainbow",
+}
+
+KIDS_BLOCKED_TAGS: set[str] = {
+    "dark", "melancholic", "complex", "moody", "gloomy", "noir",
+    "dramatic", "horror", "violent", "scary", "eerie", "sinister",
+    "disturbing", "unsettling", "provocative",
+}
+
+KIDS_BLOCKED_MOODS: set[str] = {"melancholic", "mysterious"}
+KIDS_PREFERRED_MOODS: set[str] = {"joyful", "energetic", "calm"}
+
 TIME_ADJACENT: dict[str, list[str]] = {
     "dawn":      ["dawn", "morning"],
     "morning":   ["morning", "dawn", "afternoon"],
@@ -90,17 +109,22 @@ class SelectionResult:
 # Main Entry Point
 # ---------------------------------------------------------------------------
 
-def select_best_image(context: dict) -> Optional[SelectionResult]:
+def select_best_image(
+    context: dict,
+    user_id: str = "",
+    profile_type: str = "Standard",
+) -> Optional[SelectionResult]:
     """
     Selects the optimal display image for the given context.
 
     Steps:
       1. Check for manual override → return immediately if active.
       2. Load all analysed + active candidate images.
-      3. Score each candidate with the weighted algorithm.
-      4. Pick the highest scorer, write an audit log, update stats.
+      3. Apply Kids safety filter if profile_type == 'Kids'.
+      4. Score each candidate with the weighted algorithm.
+      5. Pick the highest scorer, write an audit log, update stats.
     """
-    prefs = get_preferences()
+    prefs = get_preferences(user_id=user_id)
 
     # ── 1. Manual override ────────────────────────────────────────────────
     if prefs.get("override_active") and prefs.get("override_image_id"):
@@ -112,7 +136,7 @@ def select_best_image(context: dict) -> Optional[SelectionResult]:
                 reasoning_text="Manual override active.",
                 was_override=True, context=context,
             )
-            _write_log(result, context)
+            _write_log(result, context, user_id=user_id)
             return result
 
     # ── 2. Candidate pool (with scheduling filter) ────────────────────────
@@ -123,17 +147,29 @@ def select_best_image(context: dict) -> Optional[SelectionResult]:
         candidates = get_scheduled_images(
             current_date=now.strftime("%Y-%m-%d"),
             current_period=period,
+            user_id=user_id,
         )
     except Exception:
-        candidates = get_analyzed_images()
+        candidates = get_analyzed_images(user_id=user_id)
     if not candidates:
         logger.warning("No analysed images available.")
         return None
 
-    # ── 3. Score ──────────────────────────────────────────────────────────
+    # ── 3. Kids Safety Filter ─────────────────────────────────────────────
+    if profile_type == "Kids":
+        candidates = _apply_kids_filter(candidates)
+        if not candidates:
+            logger.warning("Kids filter removed all candidates.")
+            return None
+
+    # ── 4. Score ──────────────────────────────────────────────────────────
     weights         = WEIGHT_PROFILES.get(prefs.get("sensitivity", "medium"), WEIGHT_PROFILES["medium"])
     recently_shown  = get_recently_shown_ids(window_minutes=60)
     target_mood     = _resolve_mood(context, prefs)
+
+    # Kids mode: override mood to prefer safe moods
+    if profile_type == "Kids" and target_mood in KIDS_BLOCKED_MOODS:
+        target_mood = "joyful"
 
     best: Optional[SelectionResult] = None
     best_score = -1.0
@@ -141,6 +177,13 @@ def select_best_image(context: dict) -> Optional[SelectionResult]:
     for img in candidates:
         tags   = get_tags_for_image(img["id"])
         result = _score(img, tags, context, prefs, weights, recently_shown, target_mood)
+
+        # Kids mode: boost images with safe tags
+        if profile_type == "Kids":
+            tag_names = {t["name"].lower() for t in tags}
+            safe_hits = len(tag_names & KIDS_SAFE_TAGS)
+            result.total_score = min(1.0, result.total_score + safe_hits * 0.03)
+
         if result.total_score > best_score:
             best_score = result.total_score
             best = result
@@ -148,10 +191,41 @@ def select_best_image(context: dict) -> Optional[SelectionResult]:
     if best is None:
         return None
 
-    # ── 4. Persist & return ───────────────────────────────────────────────
-    _write_log(best, context)
+    # ── 5. Persist & return ───────────────────────────────────────────────
+    _write_log(best, context, user_id=user_id)
     update_image_display_stats(best.image["id"])
     return best
+
+
+def _apply_kids_filter(candidates: list[dict]) -> list[dict]:
+    """
+    Filter image candidates for kids-safe content.
+
+    Blocks images with:
+      - Moods in KIDS_BLOCKED_MOODS (melancholic, mysterious)
+      - Tags in KIDS_BLOCKED_TAGS (dark, horror, violent, etc.)
+
+    Prioritizes images with KIDS_SAFE_TAGS (bright, cartoon, nature, etc.)
+    """
+    safe: list[dict] = []
+    for img in candidates:
+        mood = img.get("primary_mood", "neutral")
+        if mood in KIDS_BLOCKED_MOODS:
+            continue
+
+        tags = get_tags_for_image(img["id"])
+        tag_names = {t["name"].lower() for t in tags}
+
+        if tag_names & KIDS_BLOCKED_TAGS:
+            continue
+
+        safe.append(img)
+
+    # If filter is too aggressive and removes everything, keep calm/joyful ones
+    if not safe:
+        safe = [img for img in candidates if img.get("primary_mood") in KIDS_PREFERRED_MOODS]
+
+    return safe
 
 
 # ---------------------------------------------------------------------------
@@ -309,7 +383,7 @@ def _resolve_mood(context: dict, prefs: dict) -> str:
     return context.get("detected_mood", "neutral") or "neutral"
 
 
-def _write_log(result: SelectionResult, context: dict) -> None:
+def _write_log(result: SelectionResult, context: dict, user_id: str = "") -> None:
     try:
         save_context_log(
             time_period=context.get("time_period", ""),
@@ -320,6 +394,7 @@ def _write_log(result: SelectionResult, context: dict) -> None:
             matched_tags=result.matched_tags,
             reasoning_text=result.reasoning_text,
             was_override=result.was_override,
+            user_id=user_id,
         )
     except Exception as exc:
         logger.error("Failed to write context log: %s", exc)

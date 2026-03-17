@@ -66,6 +66,7 @@ class Image(Base):
     schedule_start = Column(DateTime(timezone=True), nullable=True)
     schedule_end = Column(DateTime(timezone=True), nullable=True)
     time_window = Column(String(100), nullable=False, default="any")
+    user_id = Column(String(36), nullable=False, default="")
 
     __table_args__ = (
         Index("idx_mood_time", "primary_mood", "optimal_time"),
@@ -103,6 +104,7 @@ class UserPreference(Base):
     override_active = Column(Boolean, nullable=False, default=False)
     override_image_id = Column(String(36), ForeignKey("images.id", ondelete="SET NULL"), nullable=True)
     recency_weight = Column(Float, nullable=False, default=0.2)
+    user_id = Column(String(36), nullable=False, default="")
     updated_at = Column(DateTime(timezone=True), nullable=False, default=datetime.now(timezone.utc))
 
 
@@ -120,6 +122,7 @@ class ContextLog(Base):
     matched_tags = Column(JSON, nullable=False, default=list)
     reasoning_text = Column(Text, nullable=False, default="")
     was_override = Column(Boolean, nullable=False, default=False)
+    user_id = Column(String(36), nullable=False, default="")
 
     __table_args__ = (
         Index("idx_log_timestamp", "timestamp", postgresql_using="btree"),
@@ -164,11 +167,29 @@ class ImageInteraction(Base):
     image_id = Column(String(36), ForeignKey("images.id", ondelete="CASCADE"), nullable=False)
     interaction = Column(String(10), nullable=False)
     timestamp = Column(DateTime(timezone=True), nullable=False, default=datetime.now(timezone.utc))
+    user_id = Column(String(36), nullable=False, default="")
 
     __table_args__ = (
         CheckConstraint("interaction IN ('like', 'skip')", name="ck_interaction_type"),
         Index("idx_interaction_lookup", "image_id", "interaction"),
         Index("idx_interactions_ts", "timestamp"),
+    )
+
+
+class User(Base):
+    """User accounts for multi-user authentication"""
+    __tablename__ = "users"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    username = Column(String(100), nullable=False, unique=True)
+    name = Column(String(255), nullable=False, default="")
+    email = Column(String(255), nullable=False, default="")
+    password_hash = Column(Text, nullable=False)
+    profile_type = Column(String(20), nullable=False, default="Standard")
+    created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.now(timezone.utc))
+
+    __table_args__ = (
+        CheckConstraint("profile_type IN ('Standard', 'Kids', 'Professional')", name="ck_profile_type"),
     )
 
 

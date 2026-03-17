@@ -19,31 +19,88 @@ from .schema import get_connection
 
 
 # ---------------------------------------------------------------------------
-# Images
+# Users (Authentication)
 # ---------------------------------------------------------------------------
 
-def get_all_images(active_only: bool = True) -> list[dict]:
-    """Returns all images, optionally filtered to active ones only."""
+def create_user(
+    username: str, password_hash: str, name: str = "",
+    email: str = "", profile_type: str = "Standard",
+) -> str:
+    """Creates a new user and returns the user ID."""
+    user_id = str(uuid.uuid4())
     conn = get_connection()
-    sql  = "SELECT * FROM images"
-    if active_only:
-        sql += " WHERE is_active = 1"
-    sql += " ORDER BY uploaded_at DESC"
-    rows = conn.execute(sql).fetchall()
+    conn.execute(
+        """INSERT INTO users (id, username, name, email, password_hash, profile_type)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (user_id, username, name, email, password_hash, profile_type),
+    )
+    conn.commit()
+    conn.close()
+    return user_id
+
+
+def get_user_by_username(username: str) -> Optional[dict]:
+    conn = get_connection()
+    row = conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def get_user_by_id(user_id: str) -> Optional[dict]:
+    conn = get_connection()
+    row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def get_all_users() -> list[dict]:
+    conn = get_connection()
+    rows = conn.execute("SELECT * FROM users ORDER BY created_at DESC").fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
 
-def get_analyzed_images() -> list[dict]:
+def username_exists(username: str) -> bool:
+    conn = get_connection()
+    row = conn.execute("SELECT 1 FROM users WHERE username = ?", (username,)).fetchone()
+    conn.close()
+    return row is not None
+
+
+# ---------------------------------------------------------------------------
+# Images
+# ---------------------------------------------------------------------------
+
+def get_all_images(active_only: bool = True, user_id: str = "") -> list[dict]:
+    """Returns all images, optionally filtered to active ones and/or a specific user."""
+    conn = get_connection()
+    conditions = []
+    params: list = []
+    if active_only:
+        conditions.append("is_active = 1")
+    if user_id:
+        conditions.append("user_id = ?")
+        params.append(user_id)
+    where = (" WHERE " + " AND ".join(conditions)) if conditions else ""
+    sql = f"SELECT * FROM images{where} ORDER BY uploaded_at DESC"
+    rows = conn.execute(sql, params).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_analyzed_images(user_id: str = "") -> list[dict]:
     """
     Returns images that have been processed by the Vision API.
     These are the only candidates for the Decision Engine.
     """
     conn = get_connection()
-    rows = conn.execute(
-        "SELECT * FROM images WHERE is_active = 1 AND is_analyzed = 1 "
-        "ORDER BY last_displayed ASC NULLS FIRST"
-    ).fetchall()
+    sql = "SELECT * FROM images WHERE is_active = 1 AND is_analyzed = 1"
+    params: list = []
+    if user_id:
+        sql += " AND user_id = ?"
+        params.append(user_id)
+    sql += " ORDER BY last_displayed ASC NULLS FIRST"
+    rows = conn.execute(sql, params).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
@@ -55,7 +112,7 @@ def get_image_by_id(image_id: str) -> Optional[dict]:
     return dict(row) if row else None
 
 
-def add_image(title: str, image_path: str = "", image_url: str = "") -> str:
+def add_image(title: str, image_path: str = "", image_url: str = "", user_id: str = "") -> str:
     """
     Inserts a new image record. Returns the new UUID.
     The image is marked is_analyzed=0 until Vision API processes it.
@@ -63,9 +120,9 @@ def add_image(title: str, image_path: str = "", image_url: str = "") -> str:
     image_id = str(uuid.uuid4())
     conn = get_connection()
     conn.execute(
-        """INSERT INTO images (id, title, image_path, image_url)
-           VALUES (?, ?, ?, ?)""",
-        (image_id, title, image_path, image_url),
+        """INSERT INTO images (id, title, image_path, image_url, user_id)
+           VALUES (?, ?, ?, ?, ?)""",
+        (image_id, title, image_path, image_url, user_id),
     )
     conn.commit()
     conn.close()
@@ -144,6 +201,7 @@ def search_images(
     mood: str = "",
     time_period: str = "",
     active_only: bool = True,
+    user_id: str = "",
 ) -> list[dict]:
     """Search images by title/tags, mood, and time period."""
     conn = get_connection()
@@ -152,6 +210,10 @@ def search_images(
 
     if active_only:
         conditions.append("i.is_active = 1")
+
+    if user_id:
+        conditions.append("i.user_id = ?")
+        params.append(user_id)
 
     if mood:
         conditions.append("i.primary_mood = ?")
@@ -191,19 +253,21 @@ def deactivate_images(image_ids: list[str]) -> int:
     return count
 
 
-def get_image_interaction_summary() -> list[dict]:
+def get_image_interaction_summary(user_id: str = "") -> list[dict]:
     """Aggregated likes/skips per image for analytics."""
     conn = get_connection()
-    rows = conn.execute(
-        """SELECT i.id, i.title, i.primary_mood,
+    sql = """SELECT i.id, i.title, i.primary_mood,
                   COALESCE(SUM(CASE WHEN ia.interaction = 'like' THEN 1 ELSE 0 END), 0) as likes,
                   COALESCE(SUM(CASE WHEN ia.interaction = 'skip' THEN 1 ELSE 0 END), 0) as skips
            FROM images i
            LEFT JOIN image_interactions ia ON ia.image_id = i.id
-           WHERE i.is_active = 1
-           GROUP BY i.id, i.title, i.primary_mood
-           ORDER BY likes DESC"""
-    ).fetchall()
+           WHERE i.is_active = 1"""
+    params: list = []
+    if user_id:
+        sql += " AND i.user_id = ?"
+        params.append(user_id)
+    sql += " GROUP BY i.id, i.title, i.primary_mood ORDER BY likes DESC"
+    rows = conn.execute(sql, params).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
@@ -248,10 +312,21 @@ def get_mood_over_time(days: int = 30) -> list[dict]:
 # User Preferences
 # ---------------------------------------------------------------------------
 
-def get_preferences() -> dict:
-    """Retrieves the singleton user preferences record."""
+def get_preferences(user_id: str = "") -> dict:
+    """Retrieves user preferences — per-user if user_id is set, otherwise singleton."""
     conn = get_connection()
-    row  = conn.execute("SELECT * FROM user_preferences WHERE id = 1").fetchone()
+    if user_id:
+        row = conn.execute("SELECT * FROM user_preferences WHERE user_id = ?", (user_id,)).fetchone()
+        if not row:
+            # Create per-user preferences row, seeded from defaults
+            conn.execute(
+                "INSERT INTO user_preferences (id, user_id) VALUES (?, ?)",
+                (abs(hash(user_id)) % (10**9), user_id),
+            )
+            conn.commit()
+            row = conn.execute("SELECT * FROM user_preferences WHERE user_id = ?", (user_id,)).fetchone()
+    else:
+        row = conn.execute("SELECT * FROM user_preferences WHERE id = 1").fetchone()
     conn.close()
     if not row:
         return {}
@@ -260,7 +335,7 @@ def get_preferences() -> dict:
     return data
 
 
-def update_preferences(**kwargs) -> None:
+def update_preferences(user_id: str = "", **kwargs) -> None:
     """
     Updates any subset of preference fields.
     Accepted keys: preferred_mood, sensitivity, time_mood_map,
@@ -274,13 +349,23 @@ def update_preferences(**kwargs) -> None:
         kwargs["time_mood_map"] = json.dumps(kwargs["time_mood_map"])
 
     fields = ", ".join(f"{k} = ?" for k in kwargs)
-    values = list(kwargs.values()) + [1]
+    values = list(kwargs.values())
 
     conn = get_connection()
-    conn.execute(
-        f"UPDATE user_preferences SET {fields}, updated_at = datetime('now') WHERE id = ?",
-        values,
-    )
+    if user_id:
+        # Ensure per-user row exists
+        get_preferences(user_id)
+        values.append(user_id)
+        conn.execute(
+            f"UPDATE user_preferences SET {fields}, updated_at = datetime('now') WHERE user_id = ?",
+            values,
+        )
+    else:
+        values.append(1)
+        conn.execute(
+            f"UPDATE user_preferences SET {fields}, updated_at = datetime('now') WHERE id = ?",
+            values,
+        )
     conn.commit()
     conn.close()
 
@@ -298,6 +383,7 @@ def save_context_log(
     matched_tags: list,
     reasoning_text: str,
     was_override: bool = False,
+    user_id: str = "",
 ) -> None:
     """
     Writes an immutable audit record for every display decision.
@@ -307,28 +393,38 @@ def save_context_log(
     conn.execute(
         """INSERT INTO context_logs
            (time_period, detected_mood, selected_image_id, selection_score,
-            score_breakdown, matched_tags, reasoning_text, was_override)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            score_breakdown, matched_tags, reasoning_text, was_override, user_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             time_period, detected_mood, image_id, selection_score,
             json.dumps(score_breakdown), json.dumps(matched_tags),
-            reasoning_text, int(was_override),
+            reasoning_text, int(was_override), user_id,
         ),
     )
     conn.commit()
     conn.close()
 
 
-def get_recent_logs(limit: int = 10) -> list[dict]:
+def get_recent_logs(limit: int = 10, user_id: str = "") -> list[dict]:
     """Returns the most recent display decisions for the history panel."""
     conn = get_connection()
-    rows = conn.execute(
-        """SELECT l.*, i.title as image_title, i.primary_mood
-           FROM context_logs l
-           LEFT JOIN images i ON l.selected_image_id = i.id
-           ORDER BY l.timestamp DESC LIMIT ?""",
-        (limit,),
-    ).fetchall()
+    if user_id:
+        rows = conn.execute(
+            """SELECT l.*, i.title as image_title, i.primary_mood
+               FROM context_logs l
+               LEFT JOIN images i ON l.selected_image_id = i.id
+               WHERE l.user_id = ?
+               ORDER BY l.timestamp DESC LIMIT ?""",
+            (user_id, limit),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            """SELECT l.*, i.title as image_title, i.primary_mood
+               FROM context_logs l
+               LEFT JOIN images i ON l.selected_image_id = i.id
+               ORDER BY l.timestamp DESC LIMIT ?""",
+            (limit,),
+        ).fetchall()
     conn.close()
     result = []
     for r in rows:
@@ -476,7 +572,7 @@ def update_image_error(image_id: str, error: str, retry_count: int) -> None:
 # Image Scheduling
 # ---------------------------------------------------------------------------
 
-def get_scheduled_images(current_date: str = "", current_period: str = "") -> list[dict]:
+def get_scheduled_images(current_date: str = "", current_period: str = "", user_id: str = "") -> list[dict]:
     """
     Returns analyzed, active images that are within their schedule window.
     Falls back to get_analyzed_images() behaviour when no scheduling columns exist.
@@ -484,6 +580,10 @@ def get_scheduled_images(current_date: str = "", current_period: str = "") -> li
     conn = get_connection()
     conditions = ["i.is_active = 1", "i.is_analyzed = 1"]
     params: list = []
+
+    if user_id:
+        conditions.append("i.user_id = ?")
+        params.append(user_id)
 
     if current_date:
         conditions.append("(i.schedule_start IS NULL OR i.schedule_start <= ?)")
@@ -503,10 +603,13 @@ def get_scheduled_images(current_date: str = "", current_period: str = "") -> li
         rows = conn.execute(sql, params).fetchall()
     except Exception:
         # Fallback if scheduling columns don't exist yet
-        rows = conn.execute(
-            "SELECT * FROM images WHERE is_active = 1 AND is_analyzed = 1 "
-            "ORDER BY last_displayed ASC NULLS FIRST"
-        ).fetchall()
+        fb_sql = "SELECT * FROM images WHERE is_active = 1 AND is_analyzed = 1"
+        fb_params: list = []
+        if user_id:
+            fb_sql += " AND user_id = ?"
+            fb_params.append(user_id)
+        fb_sql += " ORDER BY last_displayed ASC NULLS FIRST"
+        rows = conn.execute(fb_sql, fb_params).fetchall()
 
     conn.close()
     return [dict(r) for r in rows]

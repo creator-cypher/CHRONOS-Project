@@ -117,6 +117,19 @@ CREATE TABLE IF NOT EXISTS presets (
 )
 """
 
+_CREATE_USERS = """
+CREATE TABLE IF NOT EXISTS users (
+    id            TEXT    PRIMARY KEY,
+    username      TEXT    NOT NULL UNIQUE,
+    name          TEXT    NOT NULL DEFAULT '',
+    email         TEXT    NOT NULL DEFAULT '',
+    password_hash TEXT    NOT NULL,
+    profile_type  TEXT    NOT NULL DEFAULT 'Standard'
+                         CHECK(profile_type IN ('Standard', 'Kids', 'Professional')),
+    created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
+)
+"""
+
 # Indexes for the Decision Engine's query patterns
 _CREATE_INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_mood_time       ON images(primary_mood, optimal_time)",
@@ -166,6 +179,7 @@ def init_database() -> None:
         _CREATE_DISPLAY_CONFIG,
         _CREATE_INTERACTIONS,
         _CREATE_PRESETS,
+        _CREATE_USERS,
         *_CREATE_INDEXES,
     ]:
         cur.execute(ddl)
@@ -183,6 +197,11 @@ def init_database() -> None:
         "ALTER TABLE display_config ADD COLUMN analysis_depth TEXT NOT NULL DEFAULT 'standard'",
         "ALTER TABLE display_config ADD COLUMN analysis_focus TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE display_config ADD COLUMN custom_prompt TEXT NOT NULL DEFAULT ''",
+        # Multi-user support — scope data to individual users
+        "ALTER TABLE images ADD COLUMN user_id TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE context_logs ADD COLUMN user_id TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE image_interactions ADD COLUMN user_id TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE user_preferences ADD COLUMN user_id TEXT NOT NULL DEFAULT ''",
     ]
     for sql in _migrations:
         try:
