@@ -244,24 +244,6 @@ def get_mood_over_time(days: int = 30) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-def get_top_images(limit: int = 10) -> list[dict]:
-    """Most displayed images with interaction stats."""
-    conn = get_connection()
-    rows = conn.execute(
-        """SELECT i.id, i.title, i.primary_mood, i.display_count, i.image_url,
-                  COALESCE(SUM(CASE WHEN ia.interaction = 'like' THEN 1 ELSE 0 END), 0) as likes,
-                  COALESCE(SUM(CASE WHEN ia.interaction = 'skip' THEN 1 ELSE 0 END), 0) as skips
-           FROM images i
-           LEFT JOIN image_interactions ia ON ia.image_id = i.id
-           WHERE i.is_active = 1
-           GROUP BY i.id, i.title, i.primary_mood, i.display_count, i.image_url
-           ORDER BY i.display_count DESC LIMIT ?""",
-        (limit,),
-    ).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
-
-
 # ---------------------------------------------------------------------------
 # User Preferences
 # ---------------------------------------------------------------------------
@@ -478,17 +460,6 @@ def apply_preset(preset_id: int) -> None:
 # ---------------------------------------------------------------------------
 # Error Recovery
 # ---------------------------------------------------------------------------
-
-def get_failed_analyses() -> list[dict]:
-    """Images that failed analysis (is_analyzed=0 with an error recorded)."""
-    conn = get_connection()
-    rows = conn.execute(
-        "SELECT * FROM images WHERE is_active = 1 AND is_analyzed = 0 "
-        "AND analysis_error != '' ORDER BY uploaded_at DESC"
-    ).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
-
 
 def update_image_error(image_id: str, error: str, retry_count: int) -> None:
     """Records an analysis failure on an image."""

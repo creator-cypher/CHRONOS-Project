@@ -93,6 +93,7 @@ package-lock.json
 # Data & Assets
 /data
 /uploads
+**/uploads/
 /images
 *.zip
 *.tar.gz

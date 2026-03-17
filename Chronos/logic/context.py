@@ -72,21 +72,6 @@ def get_current_context(overrides: Optional[dict] = None) -> dict:
     return ctx
 
 
-def get_time_period(hour: Optional[int] = None) -> str:
-    if hour is None:
-        hour = datetime.now().hour
-    period, _ = _classify_time(hour)
-    return period
-
-
-def get_period_mood(time_period: str) -> str:
-    defaults = {
-        "dawn": "calm", "morning": "energetic",
-        "afternoon": "joyful", "evening": "calm", "night": "mysterious",
-    }
-    return defaults.get(time_period, "neutral")
-
-
 def _classify_time(hour: int) -> tuple[str, str]:
     for start, end, period, mood in TIME_PERIODS:
         if start <= hour < end:

@@ -35,8 +35,6 @@ from logic.context    import get_current_context, TIME_PERIOD_ICONS
 
 init_database()
 
-UPLOAD_DIR = Path(__file__).resolve().parent / "uploads"
-
 PLACEHOLDER_CSS_URL = (
     "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' "
     "width='1' height='1'%3E%3Crect fill='%23090909'/%3E%3C/svg%3E"
