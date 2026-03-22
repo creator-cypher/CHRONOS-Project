@@ -25,7 +25,15 @@ from sqlalchemy.pool import NullPool
 import uuid
 
 # Database connection
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://localhost:5432/chronos_db")
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+if not DATABASE_URL:
+    # On Render, DATABASE_URL must be set
+    raise ValueError(
+        "DATABASE_URL environment variable is not set.\n"
+        "On Render: Set DATABASE_URL in Environment Variables (PostgreSQL internal URL).\n"
+        "Locally: Add DATABASE_URL to .env file (e.g., postgresql://user:pass@localhost/dbname)"
+    )
 
 # Use NullPool for Render/Cloud deployments (closes idle connections)
 if "render.com" in DATABASE_URL or "heroku" in DATABASE_URL:
