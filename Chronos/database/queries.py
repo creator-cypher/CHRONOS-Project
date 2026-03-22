@@ -217,14 +217,33 @@ def add_image(title: str, image_path: str = "", image_url: str = "", user_id: st
     The image is marked is_analyzed=0 until Vision API processes it.
     """
     image_id = str(uuid.uuid4())
-    conn = get_connection()
-    conn.execute(
-        """INSERT INTO images (id, title, image_path, image_url, user_id)
-           VALUES (?, ?, ?, ?, ?)""",
-        (image_id, title, image_path, image_url, user_id),
-    )
-    conn.commit()
-    conn.close()
+
+    if _use_orm:
+        # PostgreSQL via SQLAlchemy ORM
+        session = SessionLocal()
+        try:
+            image = Image(
+                id=image_id,
+                title=title,
+                image_path=image_path,
+                image_url=image_url,
+                user_id=user_id,
+            )
+            session.add(image)
+            session.commit()
+        finally:
+            session.close()
+    else:
+        # SQLite raw SQL
+        conn = get_connection()
+        conn.execute(
+            """INSERT INTO images (id, title, image_path, image_url, user_id)
+               VALUES (?, ?, ?, ?, ?)""",
+            (image_id, title, image_path, image_url, user_id),
+        )
+        conn.commit()
+        conn.close()
+
     return image_id
 
 

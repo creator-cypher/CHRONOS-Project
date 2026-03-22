@@ -1047,16 +1047,36 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
             url_input  = st.text_input("Image URL", placeholder="https://…")
             url_title  = st.text_input("Title", placeholder="e.g. Aurora Borealis", key="url_title")
             if url_input and st.button("Add & Analyse URL", use_container_width=True):
-                image_id = add_image(title=url_title or url_input[:40], image_url=url_input, user_id=user_id)
-                with st.spinner("Analysing with Gemini…"):
-                    r = _run_analysis(image_id, url_input)
-                if r.success:
-                    st.success(f"Added! Mood: {r.primary_mood}")
+                # Validate URL
+                if not url_input.startswith(("http://", "https://")):
+                    st.error("URL must start with http:// or https://")
                 else:
-                    st.warning("Saved without analysis. AI call failed.")
-                _invalidate_caches()
-                time.sleep(1)
-                st.rerun()
+                    try:
+                        # Quick connectivity check (HEAD request with timeout)
+                        import urllib.request
+                        req = urllib.request.Request(url_input, method="HEAD", headers={"User-Agent": "Mozilla/5.0"})
+                        with urllib.request.urlopen(req, timeout=5) as resp:
+                            content_type = resp.headers.get("Content-Type", "")
+                            if not content_type.startswith("image/"):
+                                st.error("URL does not point to an image. Check the URL and try again.")
+                            else:
+                                # URL is valid, proceed
+                                image_id = add_image(title=url_title or url_input[:40], image_url=url_input, user_id=user_id)
+                                with st.spinner("Analysing with Gemini…"):
+                                    r = _run_analysis(image_id, url_input)
+                                if r.success:
+                                    st.success(f"✅ Added! Mood: {r.primary_mood}")
+                                else:
+                                    st.warning(f"⚠️ Saved without analysis: {r.error_message}")
+                                _invalidate_caches()
+                                time.sleep(1)
+                                st.rerun()
+                    except urllib.error.URLError as e:
+                        st.error(f"Cannot access URL: {str(e)[:100]}")
+                    except urllib.error.HTTPError as e:
+                        st.error(f"HTTP error {e.code}: {e.reason}")
+                    except Exception as e:
+                        st.error(f"Error: {str(e)[:100]}")
 
         st.divider()
 
