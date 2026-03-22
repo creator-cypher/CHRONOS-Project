@@ -1,22 +1,42 @@
 # Render.com Deployment — CHRONOS Adaptive Ambient Display System
 # ================================================================
-# Multi-service deployment: PostgreSQL + Streamlit Web App
+# Streamlit Web Application with PostgreSQL Backend
 # Images stored on Cloudinary (persistent across restarts).
 # User accounts, preferences, interaction logs stored in PostgreSQL.
 #
-# Setup: Just connect this repo to Render dashboard — it auto-creates both services.
-# Then set these env vars in the web service:
-#   - GEMINI_API_KEY (Google Cloud Console)
-#   - CLOUDINARY_URL (Cloudinary dashboard)
+# ⚠️  IMPORTANT: Render YAML blueprints don't support PostgreSQL service definitions.
+#     Follow the setup steps below BEFORE connecting this repo to Render.
+#
+# SETUP INSTRUCTIONS:
+# ===================
+# 1. Create PostgreSQL Database on Render:
+#    - Go to https://dashboard.render.com
+#    - Click "New +" → "PostgreSQL"
+#    - Name: chronos-db
+#    - Plan: Free
+#    - Create Database
+#    - Copy the "Internal Database URL" (not external)
+#
+# 2. Connect this repo:
+#    - Go to https://dashboard.render.com
+#    - Click "New +" → "Web Service"
+#    - Connect your GitHub repo (creator-cypher/CHRONOS-Project)
+#    - Name: chronos-aura
+#    - Runtime: Python
+#    - Build Command: pip install -r requirements.txt
+#    - Start Command: streamlit run app.py --server.address=0.0.0.0 --server.port=$PORT --server.headless=true --server.enableCORS=false
+#    - Plan: Free
+#    - Create Service
+#
+# 3. Set Environment Variables in the web service:
+#    - Go to Service Settings → Environment
+#    - Add three variables:
+#      GEMINI_API_KEY = <your Google Cloud API key>
+#      CLOUDINARY_URL = <your Cloudinary URL>
+#      DATABASE_URL = <PostgreSQL Internal URL from step 1>
+#    - Save & deploy
 
 services:
-  # PostgreSQL Database — Auto-created by Render
-  - type: pserv
-    name: chronos-db
-    runtime: postgresql15
-    plan: free
-
-  # Streamlit Web Application
   - type: web
     name: chronos-aura
     runtime: python
@@ -34,9 +54,6 @@ services:
       - key: CLOUDINARY_URL
         sync: false
       - key: DATABASE_URL
-        fromService:
-          name: chronos-db
-          type: pserv
-          property: connectionString
+        sync: false
       - key: PYTHONUNBUFFERED
         value: "1"
