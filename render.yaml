@@ -35,7 +35,6 @@ services:
     plan: free
     autoDeploy: true
     healthCheckPath: /_stcore/health
-    dependsOn: chronos-postgres  # Web service waits for DB to start
     envVars:
       - key: GEMINI_API_KEY
         sync: false          # Set manually in Render dashboard — never commit your key
