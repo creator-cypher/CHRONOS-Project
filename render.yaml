@@ -1,21 +1,22 @@
 # Render.com Deployment — CHRONOS Adaptive Ambient Display System
 # ================================================================
-# PostgreSQL-backed Streamlit application
-# Images are stored on Cloudinary (persistent across restarts).
-# User accounts, preferences, interaction logs, and images stored in PostgreSQL.
+# Multi-service deployment: PostgreSQL + Streamlit Web App
+# Images stored on Cloudinary (persistent across restarts).
+# User accounts, preferences, interaction logs stored in PostgreSQL.
 #
-# Setup Instructions:
-#   1. Create a PostgreSQL database on Render dashboard (free tier available)
-#   2. Copy the PostgreSQL internal database URL
-#   3. Connect this repo on dashboard.render.com (it will auto-detect render.yaml)
-#   4. Set these Environment Variables in Render:
-#      - GEMINI_API_KEY (get from Google Cloud Console)
-#      - CLOUDINARY_URL (get from Cloudinary dashboard)
-#      - DATABASE_URL (PostgreSQL internal URL from step 2)
-#   5. Deploy
+# Setup: Just connect this repo to Render dashboard — it auto-creates both services.
+# Then set these env vars in the web service:
+#   - GEMINI_API_KEY (Google Cloud Console)
+#   - CLOUDINARY_URL (Cloudinary dashboard)
 
 services:
-  # Streamlit Web Application with PostgreSQL Backend
+  # PostgreSQL Database — Auto-created by Render
+  - type: pserv
+    name: chronos-db
+    runtime: postgresql15
+    plan: free
+
+  # Streamlit Web Application
   - type: web
     name: chronos-aura
     runtime: python
@@ -29,10 +30,13 @@ services:
     healthCheckPath: /_stcore/health
     envVars:
       - key: GEMINI_API_KEY
-        sync: false          # Set manually in Render dashboard
+        sync: false
       - key: CLOUDINARY_URL
-        sync: false          # Set manually in Render dashboard
+        sync: false
       - key: DATABASE_URL
-        sync: false          # PostgreSQL internal URL from Render dashboard
+        fromService:
+          name: chronos-db
+          type: pserv
+          property: connectionString
       - key: PYTHONUNBUFFERED
         value: "1"
