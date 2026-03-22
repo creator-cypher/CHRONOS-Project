@@ -1,29 +1,21 @@
 # Render.com Deployment — CHRONOS Adaptive Ambient Display System
 # ================================================================
-# Deploy as a Python web service (no Docker, no PostgreSQL needed).
-# SQLite database is created automatically on first run.
+# PostgreSQL-backed Streamlit application
+# Images are stored on Cloudinary (persistent across restarts).
+# User accounts, preferences, interaction logs, and images stored in PostgreSQL.
 #
-# Usage:
-#   1. Connect this repo on dashboard.render.com
-#   2. Render auto-detects this file and creates the service
-#   3. Set GEMINI_API_KEY in Environment → Add Environment Variable
+# Setup Instructions:
+#   1. Create a PostgreSQL database on Render dashboard (free tier available)
+#   2. Copy the PostgreSQL internal database URL
+#   3. Connect this repo on dashboard.render.com (it will auto-detect render.yaml)
+#   4. Set these Environment Variables in Render:
+#      - GEMINI_API_KEY (get from Google Cloud Console)
+#      - CLOUDINARY_URL (get from Cloudinary dashboard)
+#      - DATABASE_URL (PostgreSQL internal URL from step 2)
+#   5. Deploy
 
 services:
-  # PostgreSQL Database — provides persistent storage for images and metadata
-  - type: pserv
-    name: chronos-postgres
-    runtime: postgres
-    plan: free
-    ipAllowList: []  # Private — not publicly accessible
-    envVars:
-      - key: POSTGRES_USER
-        value: chronos
-      - key: POSTGRES_PASSWORD
-        generateValue: true  # Render generates a secure password
-      - key: POSTGRES_DB
-        value: chronos_db
-
-  # Streamlit Web Application
+  # Streamlit Web Application with PostgreSQL Backend
   - type: web
     name: chronos-aura
     runtime: python
@@ -37,15 +29,10 @@ services:
     healthCheckPath: /_stcore/health
     envVars:
       - key: GEMINI_API_KEY
-        sync: false          # Set manually in Render dashboard — never commit your key
+        sync: false          # Set manually in Render dashboard
       - key: CLOUDINARY_URL
-        sync: false          # Set manually in Render dashboard — never commit your key
+        sync: false          # Set manually in Render dashboard
       - key: DATABASE_URL
-        fromService:
-          name: chronos-postgres
-          type: pserv
-          property: connectionString  # Render auto-injects PostgreSQL URL
+        sync: false          # PostgreSQL internal URL from Render dashboard
       - key: PYTHONUNBUFFERED
         value: "1"
-      - key: PYTHON_VERSION
-        value: "3.11.0"

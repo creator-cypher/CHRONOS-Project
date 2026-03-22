@@ -1,32 +1,19 @@
 """
-Chronos — Database Query Layer (Dual-Mode: SQLite + PostgreSQL)
-=================================================================
+Chronos — Database Query Layer (PostgreSQL)
+=============================================
 
 All SQL read/write operations live here. Views and logic modules import
 from this module exclusively — they never write raw SQL themselves.
-This mirrors the Repository pattern and makes the database easy to swap.
-
-Automatically detects DATABASE_URL to choose SQLite (dev) or PostgreSQL (prod).
+This mirrors the Repository pattern and uses SQLAlchemy ORM for PostgreSQL.
 """
 
 import json
 import uuid
-import os
 from datetime import datetime, timezone
 from typing import Optional
 
-# Detect database type
-DATABASE_URL = os.getenv("DATABASE_URL", "")
-IS_POSTGRES = DATABASE_URL and ("postgresql://" in DATABASE_URL or "postgres://" in DATABASE_URL)
-
-if IS_POSTGRES:
-    # Use SQLAlchemy ORM for PostgreSQL
-    from .postgres_schema import SessionLocal, Image, ImageTag, ContextLog, ImageInteraction, DisplayConfig, Preset, User
-    _use_orm = True
-else:
-    # Use raw SQL for SQLite
-    from .schema import get_connection
-    _use_orm = False
+# Use SQLAlchemy ORM for PostgreSQL
+from .postgres_schema import SessionLocal, Image, ImageTag, ContextLog, ImageInteraction, DisplayConfig, Preset, User
 
 
 # ---------------------------------------------------------------------------
@@ -39,131 +26,85 @@ def create_user(
 ) -> str:
     """Creates a new user and returns the user ID."""
     user_id = str(uuid.uuid4())
-
-    if _use_orm:
-        # PostgreSQL via SQLAlchemy ORM
-        session = SessionLocal()
-        try:
-            user = User(
-                id=user_id,
-                username=username,
-                name=name or username,
-                email=email,
-                password_hash=password_hash,
-                profile_type=profile_type,
-            )
-            session.add(user)
-            session.commit()
-        finally:
-            session.close()
-    else:
-        # SQLite raw SQL
-        conn = get_connection()
-        conn.execute(
-            """INSERT INTO users (id, username, name, email, password_hash, profile_type)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (user_id, username, name, email, password_hash, profile_type),
+    session = SessionLocal()
+    try:
+        user = User(
+            id=user_id,
+            username=username,
+            name=name or username,
+            email=email,
+            password_hash=password_hash,
+            profile_type=profile_type,
         )
-        conn.commit()
-        conn.close()
-
+        session.add(user)
+        session.commit()
+    finally:
+        session.close()
     return user_id
 
 
 def get_user_by_username(username: str) -> Optional[dict]:
-    if _use_orm:
-        # PostgreSQL via SQLAlchemy ORM
-        session = SessionLocal()
-        try:
-            user = session.query(User).filter(User.username == username).first()
-            if user:
-                return {
-                    "id": user.id,
-                    "username": user.username,
-                    "name": user.name,
-                    "email": user.email,
-                    "password_hash": user.password_hash,
-                    "profile_type": user.profile_type,
-                }
-            return None
-        finally:
-            session.close()
-    else:
-        # SQLite raw SQL
-        conn = get_connection()
-        row = conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
-        conn.close()
-        return dict(row) if row else None
+    session = SessionLocal()
+    try:
+        user = session.query(User).filter(User.username == username).first()
+        if user:
+            return {
+                "id": user.id,
+                "username": user.username,
+                "name": user.name,
+                "email": user.email,
+                "password_hash": user.password_hash,
+                "profile_type": user.profile_type,
+            }
+        return None
+    finally:
+        session.close()
 
 
 def get_user_by_id(user_id: str) -> Optional[dict]:
-    if _use_orm:
-        # PostgreSQL via SQLAlchemy ORM
-        session = SessionLocal()
-        try:
-            user = session.query(User).filter(User.id == user_id).first()
-            if user:
-                return {
-                    "id": user.id,
-                    "username": user.username,
-                    "name": user.name,
-                    "email": user.email,
-                    "password_hash": user.password_hash,
-                    "profile_type": user.profile_type,
-                }
-            return None
-        finally:
-            session.close()
-    else:
-        # SQLite raw SQL
-        conn = get_connection()
-        row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
-        conn.close()
-        return dict(row) if row else None
+    session = SessionLocal()
+    try:
+        user = session.query(User).filter(User.id == user_id).first()
+        if user:
+            return {
+                "id": user.id,
+                "username": user.username,
+                "name": user.name,
+                "email": user.email,
+                "password_hash": user.password_hash,
+                "profile_type": user.profile_type,
+            }
+        return None
+    finally:
+        session.close()
 
 
 def get_all_users() -> list[dict]:
-    if _use_orm:
-        # PostgreSQL via SQLAlchemy ORM
-        session = SessionLocal()
-        try:
-            users = session.query(User).order_by(User.created_at.desc()).all()
-            return [
-                {
-                    "id": u.id,
-                    "username": u.username,
-                    "name": u.name,
-                    "email": u.email,
-                    "password_hash": u.password_hash,
-                    "profile_type": u.profile_type,
-                }
-                for u in users
-            ]
-        finally:
-            session.close()
-    else:
-        # SQLite raw SQL
-        conn = get_connection()
-        rows = conn.execute("SELECT * FROM users ORDER BY created_at DESC").fetchall()
-        conn.close()
-        return [dict(r) for r in rows]
+    session = SessionLocal()
+    try:
+        users = session.query(User).order_by(User.created_at.desc()).all()
+        return [
+            {
+                "id": u.id,
+                "username": u.username,
+                "name": u.name,
+                "email": u.email,
+                "password_hash": u.password_hash,
+                "profile_type": u.profile_type,
+            }
+            for u in users
+        ]
+    finally:
+        session.close()
 
 
 def username_exists(username: str) -> bool:
-    if _use_orm:
-        # PostgreSQL via SQLAlchemy ORM
-        session = SessionLocal()
-        try:
-            exists = session.query(User).filter(User.username == username).first() is not None
-            return exists
-        finally:
-            session.close()
-    else:
-        # SQLite raw SQL
-        conn = get_connection()
-        row = conn.execute("SELECT 1 FROM users WHERE username = ?", (username,)).fetchone()
-        conn.close()
-        return row is not None
+    session = SessionLocal()
+    try:
+        exists = session.query(User).filter(User.username == username).first() is not None
+        return exists
+    finally:
+        session.close()
 
 
 # ---------------------------------------------------------------------------
@@ -217,33 +158,19 @@ def add_image(title: str, image_path: str = "", image_url: str = "", user_id: st
     The image is marked is_analyzed=0 until Vision API processes it.
     """
     image_id = str(uuid.uuid4())
-
-    if _use_orm:
-        # PostgreSQL via SQLAlchemy ORM
-        session = SessionLocal()
-        try:
-            image = Image(
-                id=image_id,
-                title=title,
-                image_path=image_path,
-                image_url=image_url,
-                user_id=user_id,
-            )
-            session.add(image)
-            session.commit()
-        finally:
-            session.close()
-    else:
-        # SQLite raw SQL
-        conn = get_connection()
-        conn.execute(
-            """INSERT INTO images (id, title, image_path, image_url, user_id)
-               VALUES (?, ?, ?, ?, ?)""",
-            (image_id, title, image_path, image_url, user_id),
+    session = SessionLocal()
+    try:
+        image = Image(
+            id=image_id,
+            title=title,
+            image_path=image_path,
+            image_url=image_url,
+            user_id=user_id,
         )
-        conn.commit()
-        conn.close()
-
+        session.add(image)
+        session.commit()
+    finally:
+        session.close()
     return image_id
 
 
