@@ -51,9 +51,7 @@ def get_current_context(overrides: Optional[dict] = None) -> dict:
         "minute":        now.minute,
         "detected_mood": mood,
         "day_of_week":   now.strftime("%A"),
-        "is_weekend":    now.weekday() >= 5,
         "season":        SEASONS.get(now.month, "spring"),
-        "period_icon":   TIME_PERIOD_ICONS.get(period, "🕐"),
         "timestamp":     now.isoformat(),
     }
 

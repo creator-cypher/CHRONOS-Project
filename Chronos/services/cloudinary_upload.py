@@ -156,23 +156,6 @@ def upload_image(source: bytes | str | Path, filename: str = "") -> dict:
         return _err(str(exc))
 
 
-def delete_image(public_id: str) -> bool:
-    """
-    Deletes an image from Cloudinary by its public_id.
-    Used when an image is deactivated/removed from the library.
-    Returns True on success, False on failure (never raises).
-    """
-    if not _ensure_configured():
-        return False
-    try:
-        import cloudinary.uploader
-        cloudinary.uploader.destroy(public_id, resource_type="image")
-        return True
-    except Exception as exc:
-        logger.error("Cloudinary delete failed: %s", exc)
-        return False
-
-
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------

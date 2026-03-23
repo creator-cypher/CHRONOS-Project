@@ -20,15 +20,6 @@ from .postgres_schema import (
     DisplayConfig, Preset, User, UserPreference, UserSession
 )
 
-# Helper to check if database is available
-def _check_db():
-    if SessionLocal is None:
-        raise RuntimeError(
-            "Database not available. "
-            "Check that DATABASE_URL is set in environment variables."
-        )
-
-
 def _get_session():
     """Return a new DB session, raising RuntimeError if DB is unavailable."""
     if SessionLocal is None:
@@ -98,25 +89,6 @@ def get_user_by_id(user_id: str) -> Optional[dict]:
                 "profile_type": user.profile_type,
             }
         return None
-    finally:
-        session.close()
-
-
-def get_all_users() -> list[dict]:
-    session = _get_session()
-    try:
-        users = session.query(User).order_by(User.created_at.desc()).all()
-        return [
-            {
-                "id": u.id,
-                "username": u.username,
-                "name": u.name,
-                "email": u.email,
-                "password_hash": u.password_hash,
-                "profile_type": u.profile_type,
-            }
-            for u in users
-        ]
     finally:
         session.close()
 
