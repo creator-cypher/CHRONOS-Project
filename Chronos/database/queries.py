@@ -11,9 +11,13 @@ import json
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
+from sqlalchemy import func, or_, and_
 
 # Use SQLAlchemy ORM for PostgreSQL
-from .postgres_schema import SessionLocal, Image, ImageTag, ContextLog, ImageInteraction, DisplayConfig, Preset, User
+from .postgres_schema import (
+    SessionLocal, Image, ImageTag, ContextLog, ImageInteraction,
+    DisplayConfig, Preset, User, UserPreference
+)
 
 
 # ---------------------------------------------------------------------------
@@ -113,19 +117,41 @@ def username_exists(username: str) -> bool:
 
 def get_all_images(active_only: bool = True, user_id: str = "") -> list[dict]:
     """Returns all images, optionally filtered to active ones and/or a specific user."""
-    conn = get_connection()
-    conditions = []
-    params: list = []
-    if active_only:
-        conditions.append("is_active = 1")
-    if user_id:
-        conditions.append("user_id = ?")
-        params.append(user_id)
-    where = (" WHERE " + " AND ".join(conditions)) if conditions else ""
-    sql = f"SELECT * FROM images{where} ORDER BY uploaded_at DESC"
-    rows = conn.execute(sql, params).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
+    session = SessionLocal()
+    try:
+        query = session.query(Image)
+        if active_only:
+            query = query.filter(Image.is_active == True)
+        if user_id:
+            query = query.filter(Image.user_id == user_id)
+        images = query.order_by(Image.uploaded_at.desc()).all()
+        return [
+            {
+                "id": img.id,
+                "title": img.title,
+                "image_path": img.image_path,
+                "image_url": img.image_url,
+                "ai_description": img.ai_description,
+                "dominant_colors": img.dominant_colors,
+                "primary_mood": img.primary_mood,
+                "optimal_time": img.optimal_time,
+                "base_score": img.base_score,
+                "display_count": img.display_count,
+                "last_displayed": img.last_displayed,
+                "is_analyzed": img.is_analyzed,
+                "is_active": img.is_active,
+                "uploaded_at": img.uploaded_at,
+                "analysis_error": img.analysis_error,
+                "retry_count": img.retry_count,
+                "schedule_start": img.schedule_start,
+                "schedule_end": img.schedule_end,
+                "time_window": img.time_window,
+                "user_id": img.user_id,
+            }
+            for img in images
+        ]
+    finally:
+        session.close()
 
 
 def get_analyzed_images(user_id: str = "") -> list[dict]:
@@ -133,23 +159,73 @@ def get_analyzed_images(user_id: str = "") -> list[dict]:
     Returns images that have been processed by the Vision API.
     These are the only candidates for the Decision Engine.
     """
-    conn = get_connection()
-    sql = "SELECT * FROM images WHERE is_active = 1 AND is_analyzed = 1"
-    params: list = []
-    if user_id:
-        sql += " AND user_id = ?"
-        params.append(user_id)
-    sql += " ORDER BY last_displayed ASC NULLS FIRST"
-    rows = conn.execute(sql, params).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
+    session = SessionLocal()
+    try:
+        query = session.query(Image).filter(
+            and_(Image.is_active == True, Image.is_analyzed == True)
+        )
+        if user_id:
+            query = query.filter(Image.user_id == user_id)
+        images = query.order_by(Image.last_displayed.asc()).all()
+        return [
+            {
+                "id": img.id,
+                "title": img.title,
+                "image_path": img.image_path,
+                "image_url": img.image_url,
+                "ai_description": img.ai_description,
+                "dominant_colors": img.dominant_colors,
+                "primary_mood": img.primary_mood,
+                "optimal_time": img.optimal_time,
+                "base_score": img.base_score,
+                "display_count": img.display_count,
+                "last_displayed": img.last_displayed,
+                "is_analyzed": img.is_analyzed,
+                "is_active": img.is_active,
+                "uploaded_at": img.uploaded_at,
+                "analysis_error": img.analysis_error,
+                "retry_count": img.retry_count,
+                "schedule_start": img.schedule_start,
+                "schedule_end": img.schedule_end,
+                "time_window": img.time_window,
+                "user_id": img.user_id,
+            }
+            for img in images
+        ]
+    finally:
+        session.close()
 
 
 def get_image_by_id(image_id: str) -> Optional[dict]:
-    conn = get_connection()
-    row  = conn.execute("SELECT * FROM images WHERE id = ?", (image_id,)).fetchone()
-    conn.close()
-    return dict(row) if row else None
+    session = SessionLocal()
+    try:
+        img = session.query(Image).filter(Image.id == image_id).first()
+        if img:
+            return {
+                "id": img.id,
+                "title": img.title,
+                "image_path": img.image_path,
+                "image_url": img.image_url,
+                "ai_description": img.ai_description,
+                "dominant_colors": img.dominant_colors,
+                "primary_mood": img.primary_mood,
+                "optimal_time": img.optimal_time,
+                "base_score": img.base_score,
+                "display_count": img.display_count,
+                "last_displayed": img.last_displayed,
+                "is_analyzed": img.is_analyzed,
+                "is_active": img.is_active,
+                "uploaded_at": img.uploaded_at,
+                "analysis_error": img.analysis_error,
+                "retry_count": img.retry_count,
+                "schedule_start": img.schedule_start,
+                "schedule_end": img.schedule_end,
+                "time_window": img.time_window,
+                "user_id": img.user_id,
+            }
+        return None
+    finally:
+        session.close()
 
 
 def add_image(title: str, image_path: str = "", image_url: str = "", user_id: str = "") -> str:
@@ -187,58 +263,80 @@ def update_image_analysis(
     Writes AI-generated metadata to an image record and replaces its tags.
     Called exclusively by services/vision.py after a successful API call.
     """
-    conn = get_connection()
+    session = SessionLocal()
+    try:
+        # Update image record
+        image = session.query(Image).filter(Image.id == image_id).first()
+        if image:
+            image.ai_description = description
+            image.primary_mood = primary_mood
+            image.optimal_time = optimal_time
+            image.base_score = base_score
+            image.dominant_colors = dominant_colors
+            image.is_analyzed = True
+            session.commit()
 
-    conn.execute(
-        """UPDATE images
-           SET ai_description = ?, primary_mood = ?, optimal_time = ?,
-               base_score = ?, dominant_colors = ?, is_analyzed = 1
-           WHERE id = ?""",
-        (description, primary_mood, optimal_time, base_score,
-         json.dumps(dominant_colors), image_id),
-    )
+        # Delete existing tags
+        session.query(ImageTag).filter(ImageTag.image_id == image_id).delete()
+        session.commit()
 
-    # Replace existing tags
-    conn.execute("DELETE FROM image_tags WHERE image_id = ?", (image_id,))
-    conn.executemany(
-        "INSERT OR IGNORE INTO image_tags (image_id, name, category, confidence) VALUES (?,?,?,?)",
-        [(image_id, t["name"], t["category"], t["confidence"]) for t in tags],
-    )
-
-    conn.commit()
-    conn.close()
+        # Insert new tags
+        for tag in tags:
+            image_tag = ImageTag(
+                image_id=image_id,
+                name=tag["name"],
+                category=tag["category"],
+                confidence=tag["confidence"],
+            )
+            session.add(image_tag)
+        session.commit()
+    finally:
+        session.close()
 
 
 def update_image_display_stats(image_id: str) -> None:
     """Increments display counter and sets last_displayed timestamp."""
-    conn = get_connection()
-    conn.execute(
-        """UPDATE images
-           SET display_count = display_count + 1,
-               last_displayed = datetime('now')
-           WHERE id = ?""",
-        (image_id,),
-    )
-    conn.commit()
-    conn.close()
+    session = SessionLocal()
+    try:
+        image = session.query(Image).filter(Image.id == image_id).first()
+        if image:
+            image.display_count = (image.display_count or 0) + 1
+            image.last_displayed = datetime.now(timezone.utc)
+            session.commit()
+    finally:
+        session.close()
 
 
 def deactivate_image(image_id: str) -> None:
     """Soft-delete — preserves the record for historical log integrity."""
-    conn = get_connection()
-    conn.execute("UPDATE images SET is_active = 0 WHERE id = ?", (image_id,))
-    conn.commit()
-    conn.close()
+    session = SessionLocal()
+    try:
+        image = session.query(Image).filter(Image.id == image_id).first()
+        if image:
+            image.is_active = False
+            session.commit()
+    finally:
+        session.close()
 
 
 def get_tags_for_image(image_id: str) -> list[dict]:
-    conn = get_connection()
-    rows = conn.execute(
-        "SELECT * FROM image_tags WHERE image_id = ? ORDER BY confidence DESC",
-        (image_id,),
-    ).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
+    session = SessionLocal()
+    try:
+        tags = session.query(ImageTag).filter(
+            ImageTag.image_id == image_id
+        ).order_by(ImageTag.confidence.desc()).all()
+        return [
+            {
+                "id": tag.id,
+                "image_id": tag.image_id,
+                "name": tag.name,
+                "category": tag.category,
+                "confidence": tag.confidence,
+            }
+            for tag in tags
+        ]
+    finally:
+        session.close()
 
 
 def search_images(
@@ -249,108 +347,218 @@ def search_images(
     user_id: str = "",
 ) -> list[dict]:
     """Search images by title/tags, mood, and time period."""
-    conn = get_connection()
-    conditions = []
-    params: list = []
+    session = SessionLocal()
+    try:
+        query = session.query(Image)
 
-    if active_only:
-        conditions.append("i.is_active = 1")
+        if active_only:
+            query = query.filter(Image.is_active == True)
 
-    if user_id:
-        conditions.append("i.user_id = ?")
-        params.append(user_id)
+        if user_id:
+            query = query.filter(Image.user_id == user_id)
 
-    if mood:
-        conditions.append("i.primary_mood = ?")
-        params.append(mood)
+        if mood:
+            query = query.filter(Image.primary_mood == mood)
 
-    if time_period:
-        conditions.append("i.optimal_time = ?")
-        params.append(time_period)
+        if time_period:
+            query = query.filter(Image.optimal_time == time_period)
 
-    if text:
-        conditions.append(
-            "(i.title LIKE ? OR EXISTS "
-            "(SELECT 1 FROM image_tags t WHERE t.image_id = i.id AND t.name LIKE ?))"
-        )
-        like = f"%{text}%"
-        params.extend([like, like])
+        if text:
+            # Search by title or tags
+            like_text = f"%{text}%"
+            query = query.filter(
+                or_(
+                    Image.title.ilike(like_text),
+                    Image.id.in_(
+                        session.query(ImageTag.image_id).filter(
+                            ImageTag.name.ilike(like_text)
+                        )
+                    )
+                )
+            )
 
-    where = (" WHERE " + " AND ".join(conditions)) if conditions else ""
-    sql = f"SELECT DISTINCT i.* FROM images i{where} ORDER BY i.uploaded_at DESC"
-    rows = conn.execute(sql, params).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
+        images = query.order_by(Image.uploaded_at.desc()).all()
+        return [
+            {
+                "id": img.id,
+                "title": img.title,
+                "image_path": img.image_path,
+                "image_url": img.image_url,
+                "ai_description": img.ai_description,
+                "dominant_colors": img.dominant_colors,
+                "primary_mood": img.primary_mood,
+                "optimal_time": img.optimal_time,
+                "base_score": img.base_score,
+                "display_count": img.display_count,
+                "last_displayed": img.last_displayed,
+                "is_analyzed": img.is_analyzed,
+                "is_active": img.is_active,
+                "uploaded_at": img.uploaded_at,
+                "analysis_error": img.analysis_error,
+                "retry_count": img.retry_count,
+                "schedule_start": img.schedule_start,
+                "schedule_end": img.schedule_end,
+                "time_window": img.time_window,
+                "user_id": img.user_id,
+            }
+            for img in images
+        ]
+    finally:
+        session.close()
 
 
 def deactivate_images(image_ids: list[str]) -> int:
     """Soft-delete multiple images. Returns count affected."""
     if not image_ids:
         return 0
-    conn = get_connection()
-    placeholders = ",".join("?" for _ in image_ids)
-    cur = conn.execute(
-        f"UPDATE images SET is_active = 0 WHERE id IN ({placeholders})", image_ids
-    )
-    conn.commit()
-    count = cur.rowcount
-    conn.close()
-    return count
+    session = SessionLocal()
+    try:
+        count = session.query(Image).filter(Image.id.in_(image_ids)).update(
+            {Image.is_active: False}
+        )
+        session.commit()
+        return count
+    finally:
+        session.close()
 
 
 def get_image_interaction_summary(user_id: str = "") -> list[dict]:
     """Aggregated likes/skips per image for analytics."""
-    conn = get_connection()
-    sql = """SELECT i.id, i.title, i.primary_mood,
-                  COALESCE(SUM(CASE WHEN ia.interaction = 'like' THEN 1 ELSE 0 END), 0) as likes,
-                  COALESCE(SUM(CASE WHEN ia.interaction = 'skip' THEN 1 ELSE 0 END), 0) as skips
-           FROM images i
-           LEFT JOIN image_interactions ia ON ia.image_id = i.id
-           WHERE i.is_active = 1"""
-    params: list = []
-    if user_id:
-        sql += " AND i.user_id = ?"
-        params.append(user_id)
-    sql += " GROUP BY i.id, i.title, i.primary_mood ORDER BY likes DESC"
-    rows = conn.execute(sql, params).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
+    session = SessionLocal()
+    try:
+        # Aggregate interactions by type
+        query = session.query(
+            Image.id,
+            Image.title,
+            Image.primary_mood,
+            func.coalesce(
+                func.sum(
+                    func.cast(
+                        ImageInteraction.interaction == 'like',
+                        type_=type(1)
+                    )
+                ),
+                0
+            ).label('likes'),
+            func.coalesce(
+                func.sum(
+                    func.cast(
+                        ImageInteraction.interaction == 'skip',
+                        type_=type(1)
+                    )
+                ),
+                0
+            ).label('skips'),
+        ).outerjoin(
+            ImageInteraction,
+            Image.id == ImageInteraction.image_id
+        ).filter(Image.is_active == True)
+
+        if user_id:
+            query = query.filter(Image.user_id == user_id)
+
+        results = query.group_by(Image.id, Image.title, Image.primary_mood).order_by(
+            func.coalesce(
+                func.sum(
+                    func.cast(
+                        ImageInteraction.interaction == 'like',
+                        type_=type(1)
+                    )
+                ),
+                0
+            ).desc()
+        ).all()
+
+        return [
+            {
+                "id": r[0],
+                "title": r[1],
+                "primary_mood": r[2],
+                "likes": r[3],
+                "skips": r[4],
+            }
+            for r in results
+        ]
+    finally:
+        session.close()
 
 
 def get_mood_distribution() -> list[dict]:
     """Count of active images per mood category."""
-    conn = get_connection()
-    rows = conn.execute(
-        "SELECT primary_mood, COUNT(*) as count FROM images "
-        "WHERE is_active = 1 GROUP BY primary_mood ORDER BY count DESC"
-    ).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
+    session = SessionLocal()
+    try:
+        results = session.query(
+            Image.primary_mood,
+            func.count(Image.id).label('count')
+        ).filter(Image.is_active == True).group_by(Image.primary_mood).order_by(
+            func.count(Image.id).desc()
+        ).all()
+
+        return [
+            {
+                "primary_mood": r[0],
+                "count": r[1],
+            }
+            for r in results
+        ]
+    finally:
+        session.close()
 
 
 def get_hourly_usage() -> list[dict]:
     """Hourly distribution of display decisions from context_logs."""
-    conn = get_connection()
-    rows = conn.execute(
-        """SELECT CAST(strftime('%H', timestamp) AS INTEGER) as hour, COUNT(*) as count
-           FROM context_logs GROUP BY hour ORDER BY hour"""
-    ).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
+    session = SessionLocal()
+    try:
+        results = session.query(
+            func.extract('hour', ContextLog.timestamp).label('hour'),
+            func.count(ContextLog.id).label('count')
+        ).group_by(
+            func.extract('hour', ContextLog.timestamp)
+        ).order_by(
+            func.extract('hour', ContextLog.timestamp)
+        ).all()
+
+        return [
+            {
+                "hour": int(r[0]) if r[0] is not None else 0,
+                "count": r[1],
+            }
+            for r in results
+        ]
+    finally:
+        session.close()
 
 
 def get_mood_over_time(days: int = 30) -> list[dict]:
     """Daily mood distribution from context_logs for the last N days."""
-    conn = get_connection()
-    rows = conn.execute(
-        """SELECT date(timestamp) as date, detected_mood as mood, COUNT(*) as count
-           FROM context_logs
-           WHERE timestamp >= datetime('now', ? || ' days')
-           GROUP BY date, mood ORDER BY date""",
-        (f"-{days}",),
-    ).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
+    session = SessionLocal()
+    try:
+        from sqlalchemy import cast
+        from sqlalchemy.types import Date
+
+        results = session.query(
+            cast(ContextLog.timestamp, Date).label('date'),
+            ContextLog.detected_mood,
+            func.count(ContextLog.id).label('count')
+        ).filter(
+            ContextLog.timestamp >= func.current_timestamp() - func.cast(f'{days} days', type_=type('interval'))
+        ).group_by(
+            cast(ContextLog.timestamp, Date),
+            ContextLog.detected_mood
+        ).order_by(
+            cast(ContextLog.timestamp, Date)
+        ).all()
+
+        return [
+            {
+                "date": r[0],
+                "mood": r[1],
+                "count": r[2],
+            }
+            for r in results
+        ]
+    finally:
+        session.close()
 
 
 # ---------------------------------------------------------------------------
@@ -359,25 +567,35 @@ def get_mood_over_time(days: int = 30) -> list[dict]:
 
 def get_preferences(user_id: str = "") -> dict:
     """Retrieves user preferences — per-user if user_id is set, otherwise singleton."""
-    conn = get_connection()
-    if user_id:
-        row = conn.execute("SELECT * FROM user_preferences WHERE user_id = ?", (user_id,)).fetchone()
-        if not row:
-            # Create per-user preferences row, seeded from defaults
-            conn.execute(
-                "INSERT INTO user_preferences (id, user_id) VALUES (?, ?)",
-                (abs(hash(user_id)) % (10**9), user_id),
-            )
-            conn.commit()
-            row = conn.execute("SELECT * FROM user_preferences WHERE user_id = ?", (user_id,)).fetchone()
-    else:
-        row = conn.execute("SELECT * FROM user_preferences WHERE id = 1").fetchone()
-    conn.close()
-    if not row:
-        return {}
-    data = dict(row)
-    data["time_mood_map"] = json.loads(data.get("time_mood_map") or "{}")
-    return data
+    session = SessionLocal()
+    try:
+        if user_id:
+            pref = session.query(UserPreference).filter(UserPreference.user_id == user_id).first()
+            if not pref:
+                # Create per-user preferences row
+                pref = UserPreference(user_id=user_id)
+                session.add(pref)
+                session.commit()
+        else:
+            pref = session.query(UserPreference).filter(UserPreference.id == 1).first()
+
+        if not pref:
+            return {}
+
+        data = {
+            "id": pref.id,
+            "preferred_mood": pref.preferred_mood,
+            "sensitivity": pref.sensitivity,
+            "time_mood_map": pref.time_mood_map or {},
+            "override_active": pref.override_active,
+            "override_image_id": pref.override_image_id,
+            "recency_weight": pref.recency_weight,
+            "user_id": pref.user_id,
+            "updated_at": pref.updated_at,
+        }
+        return data
+    finally:
+        session.close()
 
 
 def update_preferences(user_id: str = "", **kwargs) -> None:
@@ -389,30 +607,27 @@ def update_preferences(user_id: str = "", **kwargs) -> None:
     if not kwargs:
         return
 
-    # Serialize time_mood_map if present
-    if "time_mood_map" in kwargs:
-        kwargs["time_mood_map"] = json.dumps(kwargs["time_mood_map"])
+    session = SessionLocal()
+    try:
+        if user_id:
+            # Ensure per-user row exists
+            pref = session.query(UserPreference).filter(UserPreference.user_id == user_id).first()
+            if not pref:
+                pref = UserPreference(user_id=user_id)
+                session.add(pref)
+                session.commit()
+                pref = session.query(UserPreference).filter(UserPreference.user_id == user_id).first()
+        else:
+            pref = session.query(UserPreference).filter(UserPreference.id == 1).first()
 
-    fields = ", ".join(f"{k} = ?" for k in kwargs)
-    values = list(kwargs.values())
-
-    conn = get_connection()
-    if user_id:
-        # Ensure per-user row exists
-        get_preferences(user_id)
-        values.append(user_id)
-        conn.execute(
-            f"UPDATE user_preferences SET {fields}, updated_at = datetime('now') WHERE user_id = ?",
-            values,
-        )
-    else:
-        values.append(1)
-        conn.execute(
-            f"UPDATE user_preferences SET {fields}, updated_at = datetime('now') WHERE id = ?",
-            values,
-        )
-    conn.commit()
-    conn.close()
+        if pref:
+            for key, value in kwargs.items():
+                if hasattr(pref, key):
+                    setattr(pref, key, value)
+            pref.updated_at = datetime.now(timezone.utc)
+            session.commit()
+    finally:
+        session.close()
 
 
 # ---------------------------------------------------------------------------
@@ -434,93 +649,127 @@ def save_context_log(
     Writes an immutable audit record for every display decision.
     This feeds the Reasoning Overlay and the history panel.
     """
-    conn = get_connection()
-    conn.execute(
-        """INSERT INTO context_logs
-           (time_period, detected_mood, selected_image_id, selection_score,
-            score_breakdown, matched_tags, reasoning_text, was_override, user_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (
-            time_period, detected_mood, image_id, selection_score,
-            json.dumps(score_breakdown), json.dumps(matched_tags),
-            reasoning_text, int(was_override), user_id,
-        ),
-    )
-    conn.commit()
-    conn.close()
+    session = SessionLocal()
+    try:
+        log = ContextLog(
+            time_period=time_period,
+            detected_mood=detected_mood,
+            selected_image_id=image_id,
+            selection_score=selection_score,
+            score_breakdown=score_breakdown,
+            matched_tags=matched_tags,
+            reasoning_text=reasoning_text,
+            was_override=was_override,
+            user_id=user_id,
+        )
+        session.add(log)
+        session.commit()
+    finally:
+        session.close()
 
 
 def get_recent_logs(limit: int = 10, user_id: str = "") -> list[dict]:
     """Returns the most recent display decisions for the history panel."""
-    conn = get_connection()
-    if user_id:
-        rows = conn.execute(
-            """SELECT l.*, i.title as image_title, i.primary_mood
-               FROM context_logs l
-               LEFT JOIN images i ON l.selected_image_id = i.id
-               WHERE l.user_id = ?
-               ORDER BY l.timestamp DESC LIMIT ?""",
-            (user_id, limit),
-        ).fetchall()
-    else:
-        rows = conn.execute(
-            """SELECT l.*, i.title as image_title, i.primary_mood
-               FROM context_logs l
-               LEFT JOIN images i ON l.selected_image_id = i.id
-               ORDER BY l.timestamp DESC LIMIT ?""",
-            (limit,),
-        ).fetchall()
-    conn.close()
-    result = []
-    for r in rows:
-        d = dict(r)
-        d["score_breakdown"] = json.loads(d.get("score_breakdown") or "{}")
-        d["matched_tags"]    = json.loads(d.get("matched_tags")    or "[]")
-        result.append(d)
-    return result
+    session = SessionLocal()
+    try:
+        query = session.query(ContextLog).outerjoin(
+            Image,
+            ContextLog.selected_image_id == Image.id
+        )
+
+        if user_id:
+            query = query.filter(ContextLog.user_id == user_id)
+
+        logs = query.order_by(ContextLog.timestamp.desc()).limit(limit).all()
+
+        result = []
+        for log in logs:
+            image_title = ""
+            image_mood = ""
+            if log.selected_image_id:
+                img = session.query(Image).filter(Image.id == log.selected_image_id).first()
+                if img:
+                    image_title = img.title
+                    image_mood = img.primary_mood
+
+            d = {
+                "id": log.id,
+                "timestamp": log.timestamp,
+                "time_period": log.time_period,
+                "detected_mood": log.detected_mood,
+                "selected_image_id": log.selected_image_id,
+                "selection_score": log.selection_score,
+                "score_breakdown": log.score_breakdown or {},
+                "matched_tags": log.matched_tags or [],
+                "reasoning_text": log.reasoning_text,
+                "was_override": log.was_override,
+                "user_id": log.user_id,
+                "image_title": image_title,
+                "image_mood": image_mood,
+            }
+            result.append(d)
+
+        return result
+    finally:
+        session.close()
 
 
 def get_recently_shown_ids(window_minutes: int = 60) -> set:
     """Returns image IDs displayed within the recency window (for penalty logic)."""
-    conn = get_connection()
-    rows = conn.execute(
-        """SELECT selected_image_id FROM context_logs
-           WHERE timestamp >= datetime('now', ? || ' minutes')
-           AND selected_image_id IS NOT NULL""",
-        (f"-{window_minutes}",),
-    ).fetchall()
-    conn.close()
-    return {r["selected_image_id"] for r in rows}
+    from sqlalchemy import func as sql_func
+    from datetime import timedelta
+
+    session = SessionLocal()
+    try:
+        cutoff_time = datetime.now(timezone.utc) - timedelta(minutes=window_minutes)
+        rows = session.query(ContextLog.selected_image_id).filter(
+            and_(
+                ContextLog.timestamp >= cutoff_time,
+                ContextLog.selected_image_id != None
+            )
+        ).all()
+        return {r[0] for r in rows if r[0]}
+    finally:
+        session.close()
 
 
 # ---------------------------------------------------------------------------
 # Image Interactions (Like / Skip)
 # ---------------------------------------------------------------------------
 
-def save_interaction(image_id: str, interaction: str) -> None:
+def save_interaction(image_id: str, interaction: str, user_id: str = "") -> None:
     """Record a user like or skip for an image. Feeds the scoring engine."""
-    conn = get_connection()
-    conn.execute(
-        "INSERT INTO image_interactions (image_id, interaction) VALUES (?, ?)",
-        (image_id, interaction),
-    )
-    conn.commit()
-    conn.close()
+    session = SessionLocal()
+    try:
+        interaction_record = ImageInteraction(
+            image_id=image_id,
+            interaction=interaction,
+            user_id=user_id,
+        )
+        session.add(interaction_record)
+        session.commit()
+    finally:
+        session.close()
 
 
 def get_interaction_counts(image_id: str) -> dict:
     """Returns {'like': n, 'skip': n} for a given image."""
-    conn = get_connection()
-    rows = conn.execute(
-        "SELECT interaction, COUNT(*) as cnt FROM image_interactions "
-        "WHERE image_id = ? GROUP BY interaction",
-        (image_id,),
-    ).fetchall()
-    conn.close()
-    counts = {"like": 0, "skip": 0}
-    for row in rows:
-        counts[row["interaction"]] = row["cnt"]
-    return counts
+    session = SessionLocal()
+    try:
+        results = session.query(
+            ImageInteraction.interaction,
+            func.count(ImageInteraction.id).label('cnt')
+        ).filter(
+            ImageInteraction.image_id == image_id
+        ).group_by(ImageInteraction.interaction).all()
+
+        counts = {"like": 0, "skip": 0}
+        for row in results:
+            if row[0] in counts:
+                counts[row[0]] = row[1]
+        return counts
+    finally:
+        session.close()
 
 
 # ---------------------------------------------------------------------------
@@ -529,25 +778,43 @@ def get_interaction_counts(image_id: str) -> dict:
 
 def get_display_config() -> dict:
     """Retrieves the singleton display configuration."""
-    conn = get_connection()
-    row = conn.execute("SELECT * FROM display_config WHERE id = 1").fetchone()
-    conn.close()
-    return dict(row) if row else {}
+    session = SessionLocal()
+    try:
+        config = session.query(DisplayConfig).filter(DisplayConfig.id == 1).first()
+        if config:
+            return {
+                "id": config.id,
+                "poll_interval_seconds": config.poll_interval_seconds,
+                "transition_duration_ms": config.transition_duration_ms,
+                "show_reasoning_overlay": config.show_reasoning_overlay,
+                "overlay_auto_hide_seconds": config.overlay_auto_hide_seconds,
+                "night_brightness": config.night_brightness,
+                "analysis_depth": config.analysis_depth,
+                "analysis_focus": config.analysis_focus,
+                "custom_prompt": config.custom_prompt,
+                "updated_at": config.updated_at,
+            }
+        return {}
+    finally:
+        session.close()
 
 
 def update_display_config(**kwargs) -> None:
     """Updates any subset of display_config fields."""
     if not kwargs:
         return
-    fields = ", ".join(f"{k} = ?" for k in kwargs)
-    values = list(kwargs.values()) + [1]
-    conn = get_connection()
-    conn.execute(
-        f"UPDATE display_config SET {fields}, updated_at = datetime('now') WHERE id = ?",
-        values,
-    )
-    conn.commit()
-    conn.close()
+
+    session = SessionLocal()
+    try:
+        config = session.query(DisplayConfig).filter(DisplayConfig.id == 1).first()
+        if config:
+            for key, value in kwargs.items():
+                if hasattr(config, key):
+                    setattr(config, key, value)
+            config.updated_at = datetime.now(timezone.utc)
+            session.commit()
+    finally:
+        session.close()
 
 
 # ---------------------------------------------------------------------------
@@ -556,46 +823,67 @@ def update_display_config(**kwargs) -> None:
 
 def get_presets() -> list[dict]:
     """Returns all saved mood/sensitivity presets."""
-    conn = get_connection()
-    rows = conn.execute(
-        "SELECT * FROM presets ORDER BY is_default DESC, name ASC"
-    ).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
+    session = SessionLocal()
+    try:
+        presets = session.query(Preset).order_by(
+            Preset.is_default.desc(),
+            Preset.name.asc()
+        ).all()
+        return [
+            {
+                "id": p.id,
+                "name": p.name,
+                "mood": p.mood,
+                "sensitivity": p.sensitivity,
+                "is_default": p.is_default,
+                "created_at": p.created_at,
+            }
+            for p in presets
+        ]
+    finally:
+        session.close()
 
 
 def save_preset(name: str, mood: str, sensitivity: str) -> int:
     """Creates a new preset. Returns the new ID."""
-    conn = get_connection()
-    cur = conn.execute(
-        "INSERT INTO presets (name, mood, sensitivity) VALUES (?, ?, ?)",
-        (name, mood, sensitivity),
-    )
-    conn.commit()
-    preset_id = cur.lastrowid
-    conn.close()
-    return preset_id
+    session = SessionLocal()
+    try:
+        preset = Preset(
+            name=name,
+            mood=mood,
+            sensitivity=sensitivity,
+        )
+        session.add(preset)
+        session.commit()
+        session.refresh(preset)
+        return preset.id
+    finally:
+        session.close()
 
 
 def delete_preset(preset_id: int) -> None:
-    conn = get_connection()
-    conn.execute("DELETE FROM presets WHERE id = ?", (preset_id,))
-    conn.commit()
-    conn.close()
+    session = SessionLocal()
+    try:
+        session.query(Preset).filter(Preset.id == preset_id).delete()
+        session.commit()
+    finally:
+        session.close()
 
 
 def apply_preset(preset_id: int) -> None:
     """Loads preset values into user_preferences."""
-    conn = get_connection()
-    row = conn.execute("SELECT mood, sensitivity FROM presets WHERE id = ?", (preset_id,)).fetchone()
-    if row:
-        conn.execute(
-            "UPDATE user_preferences SET preferred_mood = ?, sensitivity = ?, "
-            "updated_at = datetime('now') WHERE id = 1",
-            (row["mood"], row["sensitivity"]),
-        )
-        conn.commit()
-    conn.close()
+    session = SessionLocal()
+    try:
+        preset = session.query(Preset).filter(Preset.id == preset_id).first()
+        if preset:
+            pref = session.query(UserPreference).filter(UserPreference.id == 1).first()
+            if pref:
+                pref.preferred_mood = preset.mood
+                pref.sensitivity = preset.sensitivity
+                pref.updated_at = datetime.now(timezone.utc)
+                session.commit()
+    finally:
+        session.close()
 
 
 # ---------------------------------------------------------------------------
@@ -604,13 +892,15 @@ def apply_preset(preset_id: int) -> None:
 
 def update_image_error(image_id: str, error: str, retry_count: int) -> None:
     """Records an analysis failure on an image."""
-    conn = get_connection()
-    conn.execute(
-        "UPDATE images SET analysis_error = ?, retry_count = ? WHERE id = ?",
-        (error, retry_count, image_id),
-    )
-    conn.commit()
-    conn.close()
+    session = SessionLocal()
+    try:
+        image = session.query(Image).filter(Image.id == image_id).first()
+        if image:
+            image.analysis_error = error
+            image.retry_count = retry_count
+            session.commit()
+    finally:
+        session.close()
 
 
 # ---------------------------------------------------------------------------
@@ -622,52 +912,75 @@ def get_scheduled_images(current_date: str = "", current_period: str = "", user_
     Returns analyzed, active images that are within their schedule window.
     Falls back to get_analyzed_images() behaviour when no scheduling columns exist.
     """
-    conn = get_connection()
-    conditions = ["i.is_active = 1", "i.is_analyzed = 1"]
-    params: list = []
-
-    if user_id:
-        conditions.append("i.user_id = ?")
-        params.append(user_id)
-
-    if current_date:
-        conditions.append("(i.schedule_start IS NULL OR i.schedule_start <= ?)")
-        conditions.append("(i.schedule_end IS NULL OR i.schedule_end >= ?)")
-        params.extend([current_date, current_date])
-
-    if current_period:
-        conditions.append(
-            "(i.time_window = 'any' OR i.time_window LIKE ?)"
-        )
-        params.append(f"%{current_period}%")
-
-    where = " WHERE " + " AND ".join(conditions)
-    sql = f"SELECT i.* FROM images i{where} ORDER BY i.last_displayed ASC"
-
+    session = SessionLocal()
     try:
-        rows = conn.execute(sql, params).fetchall()
-    except Exception:
-        # Fallback if scheduling columns don't exist yet
-        fb_sql = "SELECT * FROM images WHERE is_active = 1 AND is_analyzed = 1"
-        fb_params: list = []
-        if user_id:
-            fb_sql += " AND user_id = ?"
-            fb_params.append(user_id)
-        fb_sql += " ORDER BY last_displayed ASC NULLS FIRST"
-        rows = conn.execute(fb_sql, fb_params).fetchall()
+        query = session.query(Image).filter(
+            and_(Image.is_active == True, Image.is_analyzed == True)
+        )
 
-    conn.close()
-    return [dict(r) for r in rows]
+        if user_id:
+            query = query.filter(Image.user_id == user_id)
+
+        if current_date:
+            # Date constraints
+            query = query.filter(
+                and_(
+                    or_(Image.schedule_start == None, Image.schedule_start <= current_date),
+                    or_(Image.schedule_end == None, Image.schedule_end >= current_date)
+                )
+            )
+
+        if current_period:
+            # Time period constraints
+            query = query.filter(
+                or_(
+                    Image.time_window == 'any',
+                    Image.time_window.ilike(f'%{current_period}%')
+                )
+            )
+
+        images = query.order_by(Image.last_displayed.asc()).all()
+
+        return [
+            {
+                "id": img.id,
+                "title": img.title,
+                "image_path": img.image_path,
+                "image_url": img.image_url,
+                "ai_description": img.ai_description,
+                "dominant_colors": img.dominant_colors,
+                "primary_mood": img.primary_mood,
+                "optimal_time": img.optimal_time,
+                "base_score": img.base_score,
+                "display_count": img.display_count,
+                "last_displayed": img.last_displayed,
+                "is_analyzed": img.is_analyzed,
+                "is_active": img.is_active,
+                "uploaded_at": img.uploaded_at,
+                "analysis_error": img.analysis_error,
+                "retry_count": img.retry_count,
+                "schedule_start": img.schedule_start,
+                "schedule_end": img.schedule_end,
+                "time_window": img.time_window,
+                "user_id": img.user_id,
+            }
+            for img in images
+        ]
+    finally:
+        session.close()
 
 
 def update_image_schedule(
     image_id: str, schedule_start: str, schedule_end: str, time_window: str
 ) -> None:
     """Sets scheduling constraints on an image."""
-    conn = get_connection()
-    conn.execute(
-        "UPDATE images SET schedule_start = ?, schedule_end = ?, time_window = ? WHERE id = ?",
-        (schedule_start or None, schedule_end or None, time_window, image_id),
-    )
-    conn.commit()
-    conn.close()
+    session = SessionLocal()
+    try:
+        image = session.query(Image).filter(Image.id == image_id).first()
+        if image:
+            image.schedule_start = schedule_start or None
+            image.schedule_end = schedule_end or None
+            image.time_window = time_window
+            session.commit()
+    finally:
+        session.close()
