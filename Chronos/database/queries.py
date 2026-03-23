@@ -1063,13 +1063,25 @@ def update_image_schedule(
     image_id: str, schedule_start: str, schedule_end: str, time_window: str
 ) -> None:
     """Sets scheduling constraints on an image."""
+    from datetime import date as _date
+
+    def _to_dt(s: str):
+        """Convert 'YYYY-MM-DD' string to a timezone-aware datetime, or None."""
+        if not s:
+            return None
+        try:
+            d = _date.fromisoformat(str(s))
+            return datetime(d.year, d.month, d.day, tzinfo=timezone.utc)
+        except (ValueError, TypeError):
+            return None
+
     session = _get_session()
     try:
         image = session.query(Image).filter(Image.id == image_id).first()
         if image:
-            image.schedule_start = schedule_start or None
-            image.schedule_end = schedule_end or None
-            image.time_window = time_window
+            image.schedule_start = _to_dt(schedule_start)
+            image.schedule_end   = _to_dt(schedule_end)
+            image.time_window    = time_window
             session.commit()
     finally:
         session.close()
