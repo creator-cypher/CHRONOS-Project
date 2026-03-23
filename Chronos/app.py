@@ -37,7 +37,6 @@ st.set_page_config(
 
 # ─── Internal imports (after page config) ────────────────────────────────────
 import pandas as pd
-from database import init_database
 from database.queries import (
     get_all_images, add_image, get_preferences, update_preferences,
     get_recent_logs, deactivate_image, save_interaction,
@@ -53,8 +52,8 @@ from services.vision            import analyze_image
 from services.cloudinary_upload import upload_image as cloudinary_upload
 from auth                       import init_auth_state, render_auth_page, logout, get_theme_overrides
 
-# ─── Initialise database on every cold start ─────────────────────────────────
-init_database()
+# Database tables are created lazily on first query (SQLAlchemy handles this)
+# No need for explicit init_database() call on startup
 
 # No local upload directory — images are stored on Cloudinary
 
