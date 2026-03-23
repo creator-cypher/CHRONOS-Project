@@ -11,7 +11,7 @@ import json
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
-from sqlalchemy import func, or_, and_
+from sqlalchemy import func, or_, and_, case, Integer, text
 
 # Use SQLAlchemy ORM for PostgreSQL
 from .postgres_schema import (
@@ -440,21 +440,11 @@ def get_image_interaction_summary(user_id: str = "") -> list[dict]:
             Image.title,
             Image.primary_mood,
             func.coalesce(
-                func.sum(
-                    func.cast(
-                        ImageInteraction.interaction == 'like',
-                        type_=type(1)
-                    )
-                ),
+                func.sum(case((ImageInteraction.interaction == 'like', 1), else_=0)),
                 0
             ).label('likes'),
             func.coalesce(
-                func.sum(
-                    func.cast(
-                        ImageInteraction.interaction == 'skip',
-                        type_=type(1)
-                    )
-                ),
+                func.sum(case((ImageInteraction.interaction == 'skip', 1), else_=0)),
                 0
             ).label('skips'),
         ).outerjoin(
@@ -467,12 +457,7 @@ def get_image_interaction_summary(user_id: str = "") -> list[dict]:
 
         results = query.group_by(Image.id, Image.title, Image.primary_mood).order_by(
             func.coalesce(
-                func.sum(
-                    func.cast(
-                        ImageInteraction.interaction == 'like',
-                        type_=type(1)
-                    )
-                ),
+                func.sum(case((ImageInteraction.interaction == 'like', 1), else_=0)),
                 0
             ).desc()
         ).all()
@@ -549,7 +534,7 @@ def get_mood_over_time(days: int = 30) -> list[dict]:
             ContextLog.detected_mood,
             func.count(ContextLog.id).label('count')
         ).filter(
-            ContextLog.timestamp >= func.current_timestamp() - func.cast(f'{days} days', type_=type('interval'))
+            ContextLog.timestamp >= func.current_timestamp() - text(f"interval '{days} days'")
         ).group_by(
             cast(ContextLog.timestamp, Date),
             ContextLog.detected_mood
@@ -586,11 +571,15 @@ def get_preferences(user_id: str = "") -> dict:
                     session.add(pref)
                     session.commit()
                 except Exception:
-                    # If creation fails (e.g., duplicate key), just return empty dict
                     session.rollback()
-                    return {}
+                    # Row already exists — just fetch it
+                    pref = session.query(UserPreference).filter(
+                        UserPreference.user_id == user_id
+                    ).first()
+                    if not pref:
+                        return {}
         else:
-            pref = session.query(UserPreference).filter(UserPreference.id == 1).first()
+            pref = session.query(UserPreference).first()
 
         if not pref:
             return {}
