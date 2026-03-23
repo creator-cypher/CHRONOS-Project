@@ -31,8 +31,8 @@ from database.queries import (
 
 _COOKIE_NAME = "chronos_session"
 
-@st.cache_resource
 def _get_cookie_manager():
+    """Return a CookieManager instance. Must be called at render time, not in cached functions."""
     return stx.CookieManager(key="chronos_cookie_mgr")
 
 
