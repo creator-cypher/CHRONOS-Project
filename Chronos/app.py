@@ -1416,7 +1416,7 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                 for lg in all_logs:
                     bd = lg.get("score_breakdown") or {}
                     writer.writerow([
-                        (lg.get("timestamp") or "")[:19],
+                        str(lg.get("timestamp") or "")[:19],
                         lg.get("image_title") or "Unknown",
                         lg.get("time_period") or "",
                         f"{lg.get('selection_score', 0):.3f}",
