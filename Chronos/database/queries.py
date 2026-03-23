@@ -19,6 +19,14 @@ from .postgres_schema import (
     DisplayConfig, Preset, User, UserPreference
 )
 
+# Helper to check if database is available
+def _check_db():
+    if SessionLocal is None:
+        raise RuntimeError(
+            "Database not available. "
+            "Check that DATABASE_URL is set in environment variables."
+        )
+
 
 # ---------------------------------------------------------------------------
 # Users (Authentication)

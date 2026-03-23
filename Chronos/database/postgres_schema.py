@@ -27,26 +27,31 @@ import uuid
 # Database connection
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-if not DATABASE_URL:
-    # On Render, DATABASE_URL must be set
-    raise ValueError(
-        "DATABASE_URL environment variable is not set.\n"
-        "On Render: Set DATABASE_URL in Environment Variables (PostgreSQL internal URL).\n"
-        "Locally: Add DATABASE_URL to .env file (e.g., postgresql://user:pass@localhost/dbname)"
-    )
-
-# Add SSL requirement for external PostgreSQL URLs
-if "dpg-" in DATABASE_URL and "?sslmode" not in DATABASE_URL:
-    DATABASE_URL += "?sslmode=require"
-
-# Use NullPool for Render/Cloud deployments (closes idle connections)
-if "render.com" in DATABASE_URL or "heroku" in DATABASE_URL or "dpg-" in DATABASE_URL:
-    engine = create_engine(DATABASE_URL, poolclass=NullPool, connect_args={"connect_timeout": 10})
-else:
-    engine = create_engine(DATABASE_URL, pool_pre_ping=True)
-
-SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
+# Create engine safely - will fail gracefully if DB is unavailable
+engine = None
+SessionLocal = None
 Base = declarative_base()
+
+if DATABASE_URL:
+    try:
+        # Add SSL requirement for external PostgreSQL URLs
+        if "dpg-" in DATABASE_URL and "?sslmode" not in DATABASE_URL:
+            DATABASE_URL += "?sslmode=require"
+
+        # Use NullPool for Render/Cloud deployments (closes idle connections)
+        if "render.com" in DATABASE_URL or "heroku" in DATABASE_URL or "dpg-" in DATABASE_URL:
+            engine = create_engine(DATABASE_URL, poolclass=NullPool, connect_args={"connect_timeout": 5})
+        else:
+            engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+
+        SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
+    except Exception as e:
+        print(f"⚠️  Database connection failed: {e}")
+        print("App will start but database features will be unavailable.")
+        engine = None
+        SessionLocal = None
+else:
+    print("⚠️  DATABASE_URL not set. Database features will be unavailable.")
 
 
 # ---------------------------------------------------------------------------
