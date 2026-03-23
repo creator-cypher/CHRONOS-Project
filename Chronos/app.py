@@ -90,7 +90,7 @@ def cached_mood_over_time(days=30):
 # CSS Injection —dark theme
 # =============================================================================
 
-def inject_global_css(image_css_url: str, time_period: str, profile_type: str = "Standard") -> None:
+def inject_global_css(image_css_url: str, time_period: str, profile_type: str = "Standard", animate: bool = True) -> None:
     """
     Injects all custom CSS into the Streamlit page.
 
@@ -148,7 +148,7 @@ def inject_global_css(image_css_url: str, time_period: str, profile_type: str = 
         background-repeat:   no-repeat;
         filter:              brightness({brightness}) saturate(1.05);
         z-index:             -1;
-        animation:           chronosFadeIn 1.4s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+        animation:           {"chronosFadeIn 0.5s ease-out forwards" if animate else "none"};
     }}
 
     /* .stApp must be transparent so #chronos-bg (z-index:-1) shows through */
@@ -770,6 +770,7 @@ def _invalidate_caches():
     cached_mood_distribution.clear()
     cached_hourly_usage.clear()
     cached_mood_over_time.clear()
+    st.session_state["_force_refresh"] = True
 
 
 def _run_analysis(image_id: str, source_url: str):
@@ -891,6 +892,7 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                             prev_idx = (current_idx - 1) % len(all_imgs)
                             update_preferences(user_id, override_image_id=all_imgs[prev_idx]["id"])
                             st.toast(f"← {all_imgs[prev_idx].get('title', 'Image')}")
+                            st.session_state["_force_refresh"] = True
                             st.rerun()
 
                 with next_col:
@@ -900,12 +902,14 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                             next_idx = (current_idx + 1) % len(all_imgs)
                             update_preferences(user_id, override_image_id=all_imgs[next_idx]["id"])
                             st.toast(f"{all_imgs[next_idx].get('title', 'Image')} →")
+                            st.session_state["_force_refresh"] = True
                             st.rerun()
 
                 with like_col:
                     if st.button("\u2764  Like", key=f"like_{img['id']}", use_container_width=True):
                         save_interaction(img["id"], "like")
                         st.toast("Liked — this image will score higher.")
+                        st.session_state["_force_refresh"] = True
                         st.rerun()
             else:
                 # Auto mode: standard Like/Skip feedback
@@ -914,11 +918,13 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                     if st.button("\u2764  Like", key=f"like_{img['id']}", use_container_width=True):
                         save_interaction(img["id"], "like")
                         st.toast("Liked — this image will score higher.")
+                        st.session_state["_force_refresh"] = True
                         st.rerun()
                 with skip_col:
                     if st.button("\u2716  Skip", key=f"skip_{img['id']}", use_container_width=True):
                         save_interaction(img["id"], "skip")
                         st.toast("Skipped — this image will show less often.")
+                        st.session_state["_force_refresh"] = True
                         st.rerun()
 
         st.divider()
@@ -957,14 +963,19 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
         presets = get_presets()
         if presets:
             preset_names = ["— Select Preset —"] + [p["name"] for p in presets]
+            # Dynamic key resets selectbox to default after each application,
+            # preventing re-application on the very next rerun.
+            _pk = st.session_state.get("_preset_counter", 0)
             selected_preset = st.selectbox(
                 "Quick Presets", preset_names,
-                index=0, key="preset_select", label_visibility="collapsed",
+                index=0, key=f"preset_select_{_pk}", label_visibility="collapsed",
             )
             if selected_preset != "— Select Preset —":
                 preset = next(p for p in presets if p["name"] == selected_preset)
-                apply_preset(preset["id"])
+                apply_preset(preset["id"], user_id=user_id)
                 st.toast(f"Applied: {selected_preset}")
+                st.session_state["_preset_counter"] = _pk + 1
+                st.session_state["_force_refresh"] = True
                 st.rerun()
 
         with st.popover("Save Current as Preset", use_container_width=True):
@@ -996,11 +1007,11 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                 all_imgs = cached_get_all_images(user_id=user_id)
                 if not all_imgs:
                     st.warning("No images in library. Upload one first to use Manual Override.")
-                    st.rerun()
                     return
                 update_preferences(user_id, override_active=1, override_image_id=all_imgs[0]["id"])
             else:
                 update_preferences(user_id, override_active=0, override_image_id=None)
+            st.session_state["_force_refresh"] = True
             st.rerun()
 
         # ── Refresh ────────────────────────────────────────────────────────
@@ -1256,6 +1267,7 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                         if st.button("Display", key=f"gal_{gimg['id']}", use_container_width=True):
                             update_preferences(user_id, override_active=1, override_image_id=gimg["id"])
                             st.toast(f"Displaying: {gimg.get('title', 'Image')}")
+                            st.session_state["_force_refresh"] = True
                             st.rerun()
 
         st.divider()
@@ -1513,23 +1525,40 @@ def main() -> None:
     user_id      = st.session_state.get("user_id", "")
     profile_type = st.session_state.get("profile_type", "Standard")
 
-    # ── 1. Context & Engine ────────────────────────────────────────────────
+    # ── 1. Context ─────────────────────────────────────────────────────────
     context = get_current_context()
-    result  = select_best_image(context, user_id=user_id, profile_type=profile_type)
 
-    # ── 2. Determine background ───────────────────────────────────────────
+    # ── 2. Engine — cached in session_state to prevent re-running on every
+    #    sidebar interaction. Force-refresh is set by buttons/toggles that
+    #    change what image should be shown (override, like/skip, refresh).
+    _should_refresh = st.session_state.pop("_force_refresh", False)
+    if _should_refresh or "_sel_result" not in st.session_state:
+        result = select_best_image(context, user_id=user_id, profile_type=profile_type)
+        st.session_state["_sel_result"] = result
+    else:
+        result = st.session_state["_sel_result"]
+
+    # ── 3. Determine background ────────────────────────────────────────────
     if result and result.image:
         css_url = get_image_css_url(result.image)
     else:
         css_url = PLACEHOLDER_CSS_URL
 
-    # ── 3. Inject CSS (includes the background image + profile theme) ─────
-    inject_global_css(css_url, context.get("time_period", "day"), profile_type=profile_type)
+    # ── 4. Smart animation — only fade-in when the displayed image changes.
+    #    Sidebar interactions (toggle, button clicks) rerun the script but
+    #    should NOT re-fire the 0.5s fade animation — that causes flicker.
+    _last_url = st.session_state.get("_last_image_url", "")
+    _animate  = css_url != _last_url
+    if _animate:
+        st.session_state["_last_image_url"] = css_url
+
+    # ── 5. Inject CSS (includes the background image + profile theme) ──────
+    inject_global_css(css_url, context.get("time_period", "day"), profile_type=profile_type, animate=_animate)
 
     # ── Persistent sidebar FAB (JS-injected, immune to CSS transform issues)
     inject_sidebar_fab()
 
-    # ── 4. Fixed UI elements (rendered as HTML, position:fixed) ───────────
+    # ── 6. Fixed UI elements (rendered as HTML, position:fixed) ───────────
     render_status_bar(context)
     render_reasoning_overlay(result)
 

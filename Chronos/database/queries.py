@@ -954,13 +954,18 @@ def delete_preset(preset_id: int) -> None:
         session.close()
 
 
-def apply_preset(preset_id: int) -> None:
-    """Loads preset values into user_preferences."""
+def apply_preset(preset_id: int, user_id: str = "") -> None:
+    """Loads preset values into user_preferences for the given user."""
     session = _get_session()
     try:
         preset = session.query(Preset).filter(Preset.id == preset_id).first()
         if preset:
-            pref = session.query(UserPreference).filter(UserPreference.id == 1).first()
+            if user_id:
+                pref = session.query(UserPreference).filter(
+                    UserPreference.user_id == user_id
+                ).first()
+            else:
+                pref = session.query(UserPreference).filter(UserPreference.id == 1).first()
             if pref:
                 pref.preferred_mood = preset.mood
                 pref.sensitivity = preset.sensitivity
