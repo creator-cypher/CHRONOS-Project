@@ -1392,7 +1392,8 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
             for log in logs:
                 score = int((log.get("selection_score") or 0) * 100)
                 title = log.get("image_title") or "Unknown"
-                ts    = (log.get("timestamp") or "")[:16]
+                _ts   = log.get("timestamp") or ""
+                ts    = str(_ts)[:16] if _ts else ""
                 override_badge = f" {bi('arrow-repeat', '0.6em', 'rgba(255,255,255,0.5)')}" if log.get("was_override") else ""
                 st.markdown(
                     f"<div style='margin-bottom:8px'>"
