@@ -1,42 +1,38 @@
 # Render.com Deployment — CHRONOS Adaptive Ambient Display System
 # ================================================================
-# Streamlit Web Application with SQLite Backend
-# Images stored on Cloudinary (persistent across restarts).
-# User accounts, preferences, and logs stored in SQLite (chronos.db).
+# Streamlit Web Application
+# Images stored on Cloudinary (persistent).
+# User accounts, preferences, and logs stored in PostgreSQL (persistent)
+# or SQLite (ephemeral — data lost on every restart, local dev only).
 #
-# ⚠️  NOTE ON DATA PERSISTENCE:
-#     Render's free tier uses an ephemeral filesystem.
-#     chronos.db is recreated on every redeploy/restart — you will need
-#     to re-register your account after each deploy.
-#     Images are safe: they live on Cloudinary and are never affected.
-#
-#     To persist accounts across deploys, upgrade to a paid Render plan
-#     and add a Disk mounted at /data — then change the SQLite path in
-#     database/postgres_schema.py to /data/chronos.db.
+# DATABASE STRATEGY:
+# ==================
+#   - DATABASE_URL set  → PostgreSQL (persistent, recommended for production)
+#   - DATABASE_URL unset → SQLite on ephemeral disk (data wiped on restart)
 #
 # SETUP INSTRUCTIONS:
 # ===================
-# 1. Connect this repo to Render:
+# 1. Create a free external PostgreSQL database (one-time):
+#    Recommended: https://neon.tech  (free tier, never expires)
+#      - Sign up → New Project → copy the connection string
+#      - It looks like: postgresql://user:pass@ep-xxx.region.aws.neon.tech/neondb?sslmode=require
+#
+#    Alternative: https://supabase.com (free tier, 500 MB)
+#      - New Project → Settings → Database → Connection string (URI mode)
+#
+# 2. Connect this repo to Render:
 #    - Go to https://dashboard.render.com
 #    - Click "New +" → "Web Service"
 #    - Connect your GitHub repo (creator-cypher/CHRONOS-Project)
-#    - Name: chronos-aura
-#    - Runtime: Python
-#    - Build Command: pip install -r requirements.txt
-#    - Start Command: streamlit run app.py ...  (auto-filled from below)
-#    - Plan: Free
+#    - Name: chronos-aura  |  Runtime: Python  |  Plan: Free
+#    - Build Command: pip install -r requirements.txt  (auto-filled)
 #    - Create Service
 #
-# 2. Set Environment Variables in the web service:
-#    - Go to Service Settings → Environment
-#    - Add two variables:
-#      GEMINI_API_KEY = <your Google Cloud API key>
-#      CLOUDINARY_URL = <your Cloudinary URL>
-#    - Do NOT set DATABASE_URL — the app will use SQLite automatically
-#    - Save & deploy
-#
-# 3. If DATABASE_URL is already set in Render dashboard, DELETE it.
-#    (Environment → find DATABASE_URL → delete it → save)
+# 3. Set Environment Variables (Service → Environment):
+#    GEMINI_API_KEY  = <your Gemini API key>
+#    CLOUDINARY_URL  = <your Cloudinary URL>
+#    DATABASE_URL    = <your Neon / Supabase connection string>
+#    Save → redeploy.  Tables are created automatically on first start.
 
 services:
   - type: web
@@ -54,6 +50,8 @@ services:
       - key: GEMINI_API_KEY
         sync: false
       - key: CLOUDINARY_URL
+        sync: false
+      - key: DATABASE_URL
         sync: false
       - key: PYTHONUNBUFFERED
         value: "1"
