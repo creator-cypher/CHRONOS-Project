@@ -16,7 +16,7 @@ from sqlalchemy import func, or_, and_, case, Integer, text
 # Use SQLAlchemy ORM for PostgreSQL
 from .postgres_schema import (
     SessionLocal, Image, ImageTag, ContextLog, ImageInteraction,
-    DisplayConfig, Preset, User, UserPreference
+    DisplayConfig, Preset, User, UserPreference, UserSession
 )
 
 # Helper to check if database is available
@@ -115,6 +115,59 @@ def username_exists(username: str) -> bool:
     try:
         exists = session.query(User).filter(User.username == username).first() is not None
         return exists
+    finally:
+        session.close()
+
+
+def create_session_token(user_id: str, days: int = 30) -> str:
+    """Create a persistent session token for cookie-based auth."""
+    from datetime import timedelta
+    token = str(uuid.uuid4())
+    session = SessionLocal()
+    try:
+        expires = datetime.now(timezone.utc) + timedelta(days=days)
+        sess = UserSession(token=token, user_id=user_id, expires_at=expires)
+        session.add(sess)
+        session.commit()
+        return token
+    except Exception:
+        session.rollback()
+        return token
+    finally:
+        session.close()
+
+
+def get_session_user(token: str) -> Optional[dict]:
+    """Validate a session token and return the user dict, or None if expired/invalid."""
+    session = SessionLocal()
+    try:
+        sess = session.query(UserSession).filter(
+            UserSession.token == token,
+            UserSession.expires_at > datetime.now(timezone.utc),
+        ).first()
+        if not sess:
+            return None
+        user = session.query(User).filter(User.id == sess.user_id).first()
+        return {
+            "id": user.id,
+            "username": user.username,
+            "name": user.name,
+            "profile_type": user.profile_type,
+        } if user else None
+    except Exception:
+        return None
+    finally:
+        session.close()
+
+
+def delete_session_token(token: str) -> None:
+    """Delete a session token (logout)."""
+    session = SessionLocal()
+    try:
+        session.query(UserSession).filter(UserSession.token == token).delete()
+        session.commit()
+    except Exception:
+        session.rollback()
     finally:
         session.close()
 

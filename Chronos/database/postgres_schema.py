@@ -210,6 +210,16 @@ class User(Base):
     )
 
 
+class UserSession(Base):
+    """Persistent session tokens for cookie-based authentication"""
+    __tablename__ = "user_sessions"
+
+    token      = Column(String, primary_key=True)
+    user_id    = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+
+
 # ---------------------------------------------------------------------------
 # Session Management
 # ---------------------------------------------------------------------------

@@ -929,6 +929,8 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
         )
         if new_mood != current_mood:
             update_preferences(user_id, preferred_mood=new_mood)
+            # Update prefs in-place so the comparison doesn't re-trigger on next run
+            prefs["preferred_mood"] = new_mood
             st.rerun()
 
         # ── AI Sensitivity ────────────────────────────────────────────────
@@ -943,6 +945,7 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
         new_sens = SENS[["Manual", "Balanced", "Full AI"].index(new_sens_idx)]
         if new_sens != current_sens:
             update_preferences(user_id, sensitivity=new_sens)
+            prefs["sensitivity"] = new_sens
             st.rerun()
 
         # ── Quick Presets (Enhancement 8) ─────────────────────────────────

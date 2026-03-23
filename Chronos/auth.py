@@ -18,12 +18,22 @@ ensuring complete data sovereignty — no external auth providers needed.
 
 import bcrypt
 import streamlit as st
+import extra_streamlit_components as stx
 
 from database.queries import (
     create_user,
     get_user_by_username,
     username_exists,
+    create_session_token,
+    get_session_user,
+    delete_session_token,
 )
+
+_COOKIE_NAME = "chronos_session"
+
+@st.cache_resource
+def _get_cookie_manager():
+    return stx.CookieManager(key="chronos_cookie_mgr")
 
 
 # ---------------------------------------------------------------------------
@@ -50,7 +60,9 @@ def verify_password(password: str, hashed: str) -> bool:
 # ---------------------------------------------------------------------------
 
 def init_auth_state() -> None:
-    """Initialize authentication-related session state keys."""
+    """Initialize authentication-related session state keys.
+    Auto-restores session from cookie if not already authenticated.
+    """
     defaults = {
         "authenticated": False,
         "user_id": "",
@@ -58,15 +70,41 @@ def init_auth_state() -> None:
         "user_name": "",
         "profile_type": "Standard",
         "auth_page": "login",
+        "session_token": "",
     }
     for key, val in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = val
 
+    # Auto-restore from cookie if not authenticated
+    if not st.session_state.get("authenticated"):
+        try:
+            cm = _get_cookie_manager()
+            token = cm.get(_COOKIE_NAME)
+            if token:
+                user = get_session_user(token)
+                if user:
+                    st.session_state["authenticated"] = True
+                    st.session_state["user_id"] = user["id"]
+                    st.session_state["username"] = user["username"]
+                    st.session_state["user_name"] = user["name"]
+                    st.session_state["profile_type"] = user["profile_type"]
+                    st.session_state["session_token"] = token
+        except Exception:
+            pass  # Cookie not available yet — first render
+
 
 def logout() -> None:
-    """Clear the authentication session."""
-    for key in ["authenticated", "user_id", "username", "user_name", "profile_type"]:
+    """Clear the authentication session and cookie."""
+    try:
+        token = st.session_state.get("session_token", "")
+        if token:
+            delete_session_token(token)
+        cm = _get_cookie_manager()
+        cm.delete(_COOKIE_NAME)
+    except Exception:
+        pass
+    for key in ["authenticated", "user_id", "username", "user_name", "profile_type", "session_token"]:
         if key in st.session_state:
             del st.session_state[key]
     st.session_state["authenticated"] = False
@@ -274,12 +312,16 @@ def _render_login() -> None:
                 try:
                     user = get_user_by_username(username.strip().lower())
                     if user and verify_password(password, user["password_hash"]):
+                        token = create_session_token(user["id"])
                         st.session_state["authenticated"] = True
                         st.session_state["user_id"] = user["id"]
                         st.session_state["username"] = user["username"]
                         st.session_state["user_name"] = user["name"]
                         st.session_state["profile_type"] = user["profile_type"]
-                        st.session_state["auth_page"] = "login"  # Reset auth page
+                        st.session_state["session_token"] = token
+                        st.session_state["auth_page"] = "login"
+                        cm = _get_cookie_manager()
+                        cm.set(_COOKIE_NAME, token, key="login_cookie")
                         st.rerun()
                     else:
                         st.error("Invalid username or password.")
@@ -352,12 +394,16 @@ def _render_register() -> None:
                         profile_type=profile_type,
                     )
                     # Auto-login after registration
+                    token = create_session_token(user_id)
                     st.session_state["authenticated"] = True
                     st.session_state["user_id"] = user_id
                     st.session_state["username"] = username.strip().lower()
                     st.session_state["user_name"] = name.strip() or username.strip()
                     st.session_state["profile_type"] = profile_type
-                    st.session_state["auth_page"] = "login"  # Reset auth page
+                    st.session_state["session_token"] = token
+                    st.session_state["auth_page"] = "login"
+                    cm = _get_cookie_manager()
+                    cm.set(_COOKIE_NAME, token, key="register_cookie")
                     st.rerun()
                 except Exception as e:
                     st.error(f"Registration error: {str(e)}")
