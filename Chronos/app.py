@@ -538,7 +538,7 @@ def inject_global_css(image_css_url: str, time_period: str, profile_type: str = 
         st.markdown(f"<style>{theme_css}</style>", unsafe_allow_html=True)
 
     # Auto-refresh every 5 minutes via meta tag (ambient display behaviour)
-    st.markdown('<meta http-equiv="refresh" content="120">', unsafe_allow_html=True)
+    st.markdown('<meta http-equiv="refresh" content="300">', unsafe_allow_html=True)
 
 
 # =============================================================================
@@ -934,15 +934,18 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
             st.rerun()
 
         # ── AI Sensitivity ────────────────────────────────────────────────
-        SENS = ["low", "medium", "high"]
+        SENS        = ["low", "medium", "high"]
+        SENS_LABELS = ["Manual", "Balanced", "Full AI"]
         current_sens = prefs.get("sensitivity", "medium")
         sens_idx     = SENS.index(current_sens) if current_sens in SENS else 1
-        new_sens_idx = st.select_slider(
+        new_sens_idx = st.radio(
             "AI Sensitivity",
-            options=["Manual", "Balanced", "Full AI"],
-            value=["Manual", "Balanced", "Full AI"][sens_idx],
+            SENS_LABELS,
+            index=sens_idx,
+            key="sens_radio",
+            horizontal=True,
         )
-        new_sens = SENS[["Manual", "Balanced", "Full AI"].index(new_sens_idx)]
+        new_sens = SENS[SENS_LABELS.index(new_sens_idx)]
         if new_sens != current_sens:
             update_preferences(user_id, sensitivity=new_sens)
             prefs["sensitivity"] = new_sens
