@@ -18,7 +18,6 @@ ensuring complete data sovereignty — no external auth providers needed.
 
 import bcrypt
 import streamlit as st
-import extra_streamlit_components as stx
 
 from database.queries import (
     create_user,
@@ -29,11 +28,7 @@ from database.queries import (
     delete_session_token,
 )
 
-_COOKIE_NAME = "chronos_session"
-
-def _get_cookie_manager():
-    """Return a CookieManager instance. Must be called at render time, not in cached functions."""
-    return stx.CookieManager(key="chronos_cookie_mgr")
+_TOKEN_PARAM = "t"  # URL query param key for session token
 
 
 # ---------------------------------------------------------------------------
@@ -76,11 +71,10 @@ def init_auth_state() -> None:
         if key not in st.session_state:
             st.session_state[key] = val
 
-    # Auto-restore from cookie if not authenticated
+    # Auto-restore from URL query param token if not authenticated
     if not st.session_state.get("authenticated"):
         try:
-            cm = _get_cookie_manager()
-            token = cm.get(_COOKIE_NAME)
+            token = st.query_params.get(_TOKEN_PARAM, "")
             if token:
                 user = get_session_user(token)
                 if user:
@@ -91,17 +85,17 @@ def init_auth_state() -> None:
                     st.session_state["profile_type"] = user["profile_type"]
                     st.session_state["session_token"] = token
         except Exception:
-            pass  # Cookie not available yet — first render
+            pass
 
 
 def logout() -> None:
-    """Clear the authentication session and cookie."""
+    """Clear the authentication session and remove URL token."""
     try:
         token = st.session_state.get("session_token", "")
         if token:
             delete_session_token(token)
-        cm = _get_cookie_manager()
-        cm.delete(_COOKIE_NAME)
+        if _TOKEN_PARAM in st.query_params:
+            del st.query_params[_TOKEN_PARAM]
     except Exception:
         pass
     for key in ["authenticated", "user_id", "username", "user_name", "profile_type", "session_token"]:
@@ -320,8 +314,7 @@ def _render_login() -> None:
                         st.session_state["profile_type"] = user["profile_type"]
                         st.session_state["session_token"] = token
                         st.session_state["auth_page"] = "login"
-                        cm = _get_cookie_manager()
-                        cm.set(_COOKIE_NAME, token, key="login_cookie")
+                        st.query_params[_TOKEN_PARAM] = token
                         st.rerun()
                     else:
                         st.error("Invalid username or password.")
@@ -402,8 +395,7 @@ def _render_register() -> None:
                     st.session_state["profile_type"] = profile_type
                     st.session_state["session_token"] = token
                     st.session_state["auth_page"] = "login"
-                    cm = _get_cookie_manager()
-                    cm.set(_COOKIE_NAME, token, key="register_cookie")
+                    st.query_params[_TOKEN_PARAM] = token
                     st.rerun()
                 except Exception as e:
                     st.error(f"Registration error: {str(e)}")
