@@ -51,9 +51,14 @@ from logic.engine               import select_best_image
 from services.vision            import analyze_image
 from services.cloudinary_upload import upload_image as cloudinary_upload
 from auth                       import init_auth_state, render_auth_page, logout, get_theme_overrides
+from database                   import init_database
 
-# Database tables are created lazily on first query (SQLAlchemy handles this)
-# No need for explicit init_database() call on startup
+# Create tables on startup (idempotent — safe to call every run)
+# Required for SQLite (local dev); harmless on PostgreSQL (Render)
+try:
+    init_database()
+except Exception:
+    pass  # DB unavailable at import time — queries will surface the error later
 
 # No local upload directory — images are stored on Cloudinary
 

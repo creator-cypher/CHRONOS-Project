@@ -13,9 +13,10 @@ from datetime import datetime, timezone
 from typing import Optional
 from sqlalchemy import func, or_, and_, case, Integer, text
 
-# Use SQLAlchemy ORM for PostgreSQL
+# Use SQLAlchemy ORM — works with both PostgreSQL (Render) and SQLite (local)
 from .postgres_schema import (
-    SessionLocal, Image, ImageTag, ContextLog, ImageInteraction,
+    SessionLocal, _using_sqlite,
+    Image, ImageTag, ContextLog, ImageInteraction,
     DisplayConfig, Preset, User, UserPreference, UserSession
 )
 
@@ -565,14 +566,16 @@ def get_hourly_usage() -> list[dict]:
     """Hourly distribution of display decisions from context_logs."""
     session = _get_session()
     try:
+        if _using_sqlite:
+            # SQLite uses strftime
+            hour_expr = func.strftime('%H', ContextLog.timestamp)
+        else:
+            hour_expr = func.extract('hour', ContextLog.timestamp)
+
         results = session.query(
-            func.extract('hour', ContextLog.timestamp).label('hour'),
+            hour_expr.label('hour'),
             func.count(ContextLog.id).label('count')
-        ).group_by(
-            func.extract('hour', ContextLog.timestamp)
-        ).order_by(
-            func.extract('hour', ContextLog.timestamp)
-        ).all()
+        ).group_by(hour_expr).order_by(hour_expr).all()
 
         return [
             {
@@ -592,17 +595,26 @@ def get_mood_over_time(days: int = 30) -> list[dict]:
         from sqlalchemy import cast
         from sqlalchemy.types import Date
 
+        if _using_sqlite:
+            # SQLite: use strftime for date grouping, datetime() for cutoff
+            date_expr = func.strftime('%Y-%m-%d', ContextLog.timestamp)
+            cutoff = text(f"datetime('now', '-{days} days')")
+        else:
+            # PostgreSQL
+            date_expr = cast(ContextLog.timestamp, Date)
+            cutoff = func.current_timestamp() - text(f"interval '{days} days'")
+
         results = session.query(
-            cast(ContextLog.timestamp, Date).label('date'),
+            date_expr.label('date'),
             ContextLog.detected_mood,
             func.count(ContextLog.id).label('count')
         ).filter(
-            ContextLog.timestamp >= func.current_timestamp() - text(f"interval '{days} days'")
+            ContextLog.timestamp >= cutoff
         ).group_by(
-            cast(ContextLog.timestamp, Date),
+            date_expr,
             ContextLog.detected_mood
         ).order_by(
-            cast(ContextLog.timestamp, Date)
+            date_expr
         ).all()
 
         return [

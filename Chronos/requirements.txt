@@ -5,5 +5,4 @@ python-dotenv>=1.0
 cloudinary>=1.36
 bcrypt>=4.1
 sqlalchemy>=2.0
-psycopg2-binary>=2.9
 pandas>=2.0

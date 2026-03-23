@@ -15,43 +15,52 @@ Features:
 """
 
 import os
+from pathlib import Path
 from datetime import datetime, timezone
 from sqlalchemy import (
     create_engine, Column, String, Integer, Float, DateTime, Boolean, Text,
     ForeignKey, CheckConstraint, UniqueConstraint, Index, JSON
 )
 from sqlalchemy.orm import declarative_base, Session, sessionmaker
-from sqlalchemy.pool import NullPool
+from sqlalchemy.pool import NullPool, StaticPool
 import uuid
 
-# Database connection
+# Database connection — PostgreSQL on Render, SQLite for local dev
 DATABASE_URL = os.getenv("DATABASE_URL")
+_using_sqlite = False
 
-# Create engine safely - will fail gracefully if DB is unavailable
+if not DATABASE_URL:
+    # Fall back to local SQLite database
+    _db_path = Path(__file__).resolve().parent.parent / "chronos.db"
+    DATABASE_URL = f"sqlite:///{_db_path}"
+    _using_sqlite = True
+    print(f"📁  DATABASE_URL not set — using local SQLite: {_db_path}")
+
 engine = None
 SessionLocal = None
 Base = declarative_base()
 
-if DATABASE_URL:
-    try:
-        # Add SSL requirement for external PostgreSQL URLs
+try:
+    if _using_sqlite:
+        engine = create_engine(
+            DATABASE_URL,
+            connect_args={"check_same_thread": False},
+        )
+    else:
+        # PostgreSQL (Render / external)
         if "dpg-" in DATABASE_URL and "?sslmode" not in DATABASE_URL:
             DATABASE_URL += "?sslmode=require"
-
-        # Use NullPool for Render/Cloud deployments (closes idle connections)
         if "render.com" in DATABASE_URL or "heroku" in DATABASE_URL or "dpg-" in DATABASE_URL:
             engine = create_engine(DATABASE_URL, poolclass=NullPool, connect_args={"connect_timeout": 5})
         else:
             engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 
-        SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
-    except Exception as e:
-        print(f"⚠️  Database connection failed: {e}")
-        print("App will start but database features will be unavailable.")
-        engine = None
-        SessionLocal = None
-else:
-    print("⚠️  DATABASE_URL not set. Database features will be unavailable.")
+    SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
+except Exception as e:
+    print(f"⚠️  Database connection failed: {e}")
+    print("App will start but database features will be unavailable.")
+    engine = None
+    SessionLocal = None
 
 
 # ---------------------------------------------------------------------------
@@ -240,6 +249,8 @@ def get_db():
 
 def init_database():
     """Create all tables. Safe to call on startup (idempotent)"""
+    if engine is None:
+        return
     Base.metadata.create_all(bind=engine)
 
     # Seed singleton rows and default presets
