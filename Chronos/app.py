@@ -929,9 +929,7 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
         )
         if new_mood != current_mood:
             update_preferences(user_id, preferred_mood=new_mood)
-            # Update prefs in-place so the comparison doesn't re-trigger on next run
             prefs["preferred_mood"] = new_mood
-            st.rerun()
 
         # ── AI Sensitivity ────────────────────────────────────────────────
         SENS        = ["low", "medium", "high"]
@@ -949,7 +947,6 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
         if new_sens != current_sens:
             update_preferences(user_id, sensitivity=new_sens)
             prefs["sensitivity"] = new_sens
-            st.rerun()
 
         # ── Quick Presets (Enhancement 8) ─────────────────────────────────
         presets = get_presets()
@@ -1497,7 +1494,12 @@ def main() -> None:
       4. Render the status bar, reasoning overlay, and sidebar controls
     """
     # ── 0. Authentication gate ─────────────────────────────────────────────
-    init_auth_state()
+    try:
+        init_auth_state()
+    except RuntimeError as e:
+        st.error(f"**Database not configured:** {e}")
+        st.info("Add `DATABASE_URL` to your `.env` file and restart the app.")
+        st.stop()
 
     if not st.session_state.get("authenticated"):
         render_auth_page()
@@ -1527,7 +1529,11 @@ def main() -> None:
     render_reasoning_overlay(result)
 
     # ── Sidebar ───────────────────────────────────────────────────────────
-    render_sidebar(context, result, user_id=user_id, profile_type=profile_type)
+    try:
+        render_sidebar(context, result, user_id=user_id, profile_type=profile_type)
+    except RuntimeError as _db_err:
+        with st.sidebar:
+            st.warning(f"Database temporarily unavailable: {_db_err}")
 
     # ── Empty state ───────────────────────────────────────────────────────
     if result is None:

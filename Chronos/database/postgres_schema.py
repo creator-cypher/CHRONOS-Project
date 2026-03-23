@@ -226,6 +226,11 @@ class UserSession(Base):
 
 def get_db():
     """Dependency injection for database sessions"""
+    if SessionLocal is None:
+        raise RuntimeError(
+            "Database not available. "
+            "Set DATABASE_URL in your .env file (local) or Render environment."
+        )
     db = SessionLocal()
     try:
         yield db

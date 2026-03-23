@@ -28,6 +28,16 @@ def _check_db():
         )
 
 
+def _get_session():
+    """Return a new DB session, raising RuntimeError if DB is unavailable."""
+    if SessionLocal is None:
+        raise RuntimeError(
+            "Database not available. "
+            "Set DATABASE_URL in your .env file (local) or Render environment."
+        )
+    return SessionLocal()
+
+
 # ---------------------------------------------------------------------------
 # Users (Authentication)
 # ---------------------------------------------------------------------------
@@ -38,7 +48,7 @@ def create_user(
 ) -> str:
     """Creates a new user and returns the user ID."""
     user_id = str(uuid.uuid4())
-    session = SessionLocal()
+    session = _get_session()
     try:
         user = User(
             id=user_id,
@@ -56,7 +66,7 @@ def create_user(
 
 
 def get_user_by_username(username: str) -> Optional[dict]:
-    session = SessionLocal()
+    session = _get_session()
     try:
         user = session.query(User).filter(User.username == username).first()
         if user:
@@ -74,7 +84,7 @@ def get_user_by_username(username: str) -> Optional[dict]:
 
 
 def get_user_by_id(user_id: str) -> Optional[dict]:
-    session = SessionLocal()
+    session = _get_session()
     try:
         user = session.query(User).filter(User.id == user_id).first()
         if user:
@@ -92,7 +102,7 @@ def get_user_by_id(user_id: str) -> Optional[dict]:
 
 
 def get_all_users() -> list[dict]:
-    session = SessionLocal()
+    session = _get_session()
     try:
         users = session.query(User).order_by(User.created_at.desc()).all()
         return [
@@ -111,7 +121,7 @@ def get_all_users() -> list[dict]:
 
 
 def username_exists(username: str) -> bool:
-    session = SessionLocal()
+    session = _get_session()
     try:
         exists = session.query(User).filter(User.username == username).first() is not None
         return exists
@@ -123,7 +133,7 @@ def create_session_token(user_id: str, days: int = 30) -> str:
     """Create a persistent session token for cookie-based auth."""
     from datetime import timedelta
     token = str(uuid.uuid4())
-    session = SessionLocal()
+    session = _get_session()
     try:
         expires = datetime.now(timezone.utc) + timedelta(days=days)
         sess = UserSession(token=token, user_id=user_id, expires_at=expires)
@@ -139,7 +149,7 @@ def create_session_token(user_id: str, days: int = 30) -> str:
 
 def get_session_user(token: str) -> Optional[dict]:
     """Validate a session token and return the user dict, or None if expired/invalid."""
-    session = SessionLocal()
+    session = _get_session()
     try:
         sess = session.query(UserSession).filter(
             UserSession.token == token,
@@ -162,7 +172,7 @@ def get_session_user(token: str) -> Optional[dict]:
 
 def delete_session_token(token: str) -> None:
     """Delete a session token (logout)."""
-    session = SessionLocal()
+    session = _get_session()
     try:
         session.query(UserSession).filter(UserSession.token == token).delete()
         session.commit()
@@ -178,7 +188,7 @@ def delete_session_token(token: str) -> None:
 
 def get_all_images(active_only: bool = True, user_id: str = "") -> list[dict]:
     """Returns all images, optionally filtered to active ones and/or a specific user."""
-    session = SessionLocal()
+    session = _get_session()
     try:
         query = session.query(Image)
         if active_only:
@@ -220,7 +230,7 @@ def get_analyzed_images(user_id: str = "") -> list[dict]:
     Returns images that have been processed by the Vision API.
     These are the only candidates for the Decision Engine.
     """
-    session = SessionLocal()
+    session = _get_session()
     try:
         query = session.query(Image).filter(
             and_(Image.is_active == True, Image.is_analyzed == True)
@@ -258,7 +268,7 @@ def get_analyzed_images(user_id: str = "") -> list[dict]:
 
 
 def get_image_by_id(image_id: str) -> Optional[dict]:
-    session = SessionLocal()
+    session = _get_session()
     try:
         img = session.query(Image).filter(Image.id == image_id).first()
         if img:
@@ -295,7 +305,7 @@ def add_image(title: str, image_path: str = "", image_url: str = "", user_id: st
     The image is marked is_analyzed=0 until Vision API processes it.
     """
     image_id = str(uuid.uuid4())
-    session = SessionLocal()
+    session = _get_session()
     try:
         image = Image(
             id=image_id,
@@ -324,7 +334,7 @@ def update_image_analysis(
     Writes AI-generated metadata to an image record and replaces its tags.
     Called exclusively by services/vision.py after a successful API call.
     """
-    session = SessionLocal()
+    session = _get_session()
     try:
         # Update image record
         image = session.query(Image).filter(Image.id == image_id).first()
@@ -357,7 +367,7 @@ def update_image_analysis(
 
 def update_image_display_stats(image_id: str) -> None:
     """Increments display counter and sets last_displayed timestamp."""
-    session = SessionLocal()
+    session = _get_session()
     try:
         image = session.query(Image).filter(Image.id == image_id).first()
         if image:
@@ -370,7 +380,7 @@ def update_image_display_stats(image_id: str) -> None:
 
 def deactivate_image(image_id: str) -> None:
     """Soft-delete — preserves the record for historical log integrity."""
-    session = SessionLocal()
+    session = _get_session()
     try:
         image = session.query(Image).filter(Image.id == image_id).first()
         if image:
@@ -381,7 +391,7 @@ def deactivate_image(image_id: str) -> None:
 
 
 def get_tags_for_image(image_id: str) -> list[dict]:
-    session = SessionLocal()
+    session = _get_session()
     try:
         tags = session.query(ImageTag).filter(
             ImageTag.image_id == image_id
@@ -408,7 +418,7 @@ def search_images(
     user_id: str = "",
 ) -> list[dict]:
     """Search images by title/tags, mood, and time period."""
-    session = SessionLocal()
+    session = _get_session()
     try:
         query = session.query(Image)
 
@@ -472,7 +482,7 @@ def deactivate_images(image_ids: list[str]) -> int:
     """Soft-delete multiple images. Returns count affected."""
     if not image_ids:
         return 0
-    session = SessionLocal()
+    session = _get_session()
     try:
         count = session.query(Image).filter(Image.id.in_(image_ids)).update(
             {Image.is_active: False}
@@ -485,7 +495,7 @@ def deactivate_images(image_ids: list[str]) -> int:
 
 def get_image_interaction_summary(user_id: str = "") -> list[dict]:
     """Aggregated likes/skips per image for analytics."""
-    session = SessionLocal()
+    session = _get_session()
     try:
         # Aggregate interactions by type
         query = session.query(
@@ -531,7 +541,7 @@ def get_image_interaction_summary(user_id: str = "") -> list[dict]:
 
 def get_mood_distribution() -> list[dict]:
     """Count of active images per mood category."""
-    session = SessionLocal()
+    session = _get_session()
     try:
         results = session.query(
             Image.primary_mood,
@@ -553,7 +563,7 @@ def get_mood_distribution() -> list[dict]:
 
 def get_hourly_usage() -> list[dict]:
     """Hourly distribution of display decisions from context_logs."""
-    session = SessionLocal()
+    session = _get_session()
     try:
         results = session.query(
             func.extract('hour', ContextLog.timestamp).label('hour'),
@@ -577,7 +587,7 @@ def get_hourly_usage() -> list[dict]:
 
 def get_mood_over_time(days: int = 30) -> list[dict]:
     """Daily mood distribution from context_logs for the last N days."""
-    session = SessionLocal()
+    session = _get_session()
     try:
         from sqlalchemy import cast
         from sqlalchemy.types import Date
@@ -613,7 +623,7 @@ def get_mood_over_time(days: int = 30) -> list[dict]:
 
 def get_preferences(user_id: str = "") -> dict:
     """Retrieves user preferences — per-user if user_id is set, otherwise singleton."""
-    session = SessionLocal()
+    session = _get_session()
     try:
         if user_id:
             pref = session.query(UserPreference).filter(UserPreference.user_id == user_id).first()
@@ -662,7 +672,7 @@ def update_preferences(user_id: str = "", **kwargs) -> None:
     if not kwargs:
         return
 
-    session = SessionLocal()
+    session = _get_session()
     try:
         if user_id:
             # Ensure per-user row exists
@@ -711,7 +721,7 @@ def save_context_log(
     Writes an immutable audit record for every display decision.
     This feeds the Reasoning Overlay and the history panel.
     """
-    session = SessionLocal()
+    session = _get_session()
     try:
         log = ContextLog(
             time_period=time_period,
@@ -732,7 +742,7 @@ def save_context_log(
 
 def get_recent_logs(limit: int = 10, user_id: str = "") -> list[dict]:
     """Returns the most recent display decisions for the history panel."""
-    session = SessionLocal()
+    session = _get_session()
     try:
         query = session.query(ContextLog).outerjoin(
             Image,
@@ -781,7 +791,7 @@ def get_recently_shown_ids(window_minutes: int = 60) -> set:
     from sqlalchemy import func as sql_func
     from datetime import timedelta
 
-    session = SessionLocal()
+    session = _get_session()
     try:
         cutoff_time = datetime.now(timezone.utc) - timedelta(minutes=window_minutes)
         rows = session.query(ContextLog.selected_image_id).filter(
@@ -801,7 +811,7 @@ def get_recently_shown_ids(window_minutes: int = 60) -> set:
 
 def save_interaction(image_id: str, interaction: str, user_id: str = "") -> None:
     """Record a user like or skip for an image. Feeds the scoring engine."""
-    session = SessionLocal()
+    session = _get_session()
     try:
         interaction_record = ImageInteraction(
             image_id=image_id,
@@ -816,7 +826,7 @@ def save_interaction(image_id: str, interaction: str, user_id: str = "") -> None
 
 def get_interaction_counts(image_id: str) -> dict:
     """Returns {'like': n, 'skip': n} for a given image."""
-    session = SessionLocal()
+    session = _get_session()
     try:
         results = session.query(
             ImageInteraction.interaction,
@@ -840,7 +850,7 @@ def get_interaction_counts(image_id: str) -> dict:
 
 def get_display_config() -> dict:
     """Retrieves the singleton display configuration."""
-    session = SessionLocal()
+    session = _get_session()
     try:
         config = session.query(DisplayConfig).filter(DisplayConfig.id == 1).first()
         if config:
@@ -866,7 +876,7 @@ def update_display_config(**kwargs) -> None:
     if not kwargs:
         return
 
-    session = SessionLocal()
+    session = _get_session()
     try:
         config = session.query(DisplayConfig).filter(DisplayConfig.id == 1).first()
         if config:
@@ -885,7 +895,7 @@ def update_display_config(**kwargs) -> None:
 
 def get_presets() -> list[dict]:
     """Returns all saved mood/sensitivity presets."""
-    session = SessionLocal()
+    session = _get_session()
     try:
         presets = session.query(Preset).order_by(
             Preset.is_default.desc(),
@@ -908,7 +918,7 @@ def get_presets() -> list[dict]:
 
 def save_preset(name: str, mood: str, sensitivity: str) -> int:
     """Creates a new preset. Returns the new ID."""
-    session = SessionLocal()
+    session = _get_session()
     try:
         preset = Preset(
             name=name,
@@ -924,7 +934,7 @@ def save_preset(name: str, mood: str, sensitivity: str) -> int:
 
 
 def delete_preset(preset_id: int) -> None:
-    session = SessionLocal()
+    session = _get_session()
     try:
         session.query(Preset).filter(Preset.id == preset_id).delete()
         session.commit()
@@ -934,7 +944,7 @@ def delete_preset(preset_id: int) -> None:
 
 def apply_preset(preset_id: int) -> None:
     """Loads preset values into user_preferences."""
-    session = SessionLocal()
+    session = _get_session()
     try:
         preset = session.query(Preset).filter(Preset.id == preset_id).first()
         if preset:
@@ -954,7 +964,7 @@ def apply_preset(preset_id: int) -> None:
 
 def update_image_error(image_id: str, error: str, retry_count: int) -> None:
     """Records an analysis failure on an image."""
-    session = SessionLocal()
+    session = _get_session()
     try:
         image = session.query(Image).filter(Image.id == image_id).first()
         if image:
@@ -974,7 +984,7 @@ def get_scheduled_images(current_date: str = "", current_period: str = "", user_
     Returns analyzed, active images that are within their schedule window.
     Falls back to get_analyzed_images() behaviour when no scheduling columns exist.
     """
-    session = SessionLocal()
+    session = _get_session()
     try:
         query = session.query(Image).filter(
             and_(Image.is_active == True, Image.is_analyzed == True)
@@ -1036,7 +1046,7 @@ def update_image_schedule(
     image_id: str, schedule_start: str, schedule_end: str, time_window: str
 ) -> None:
     """Sets scheduling constraints on an image."""
-    session = SessionLocal()
+    session = _get_session()
     try:
         image = session.query(Image).filter(Image.id == image_id).first()
         if image:
