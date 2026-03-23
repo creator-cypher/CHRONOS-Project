@@ -6,7 +6,6 @@ WORKDIR /app
 # Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
-    postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements and install dependencies
@@ -18,11 +17,6 @@ RUN pip install --user --no-cache-dir -r requirements.txt
 FROM python:3.11-slim
 
 WORKDIR /app
-
-# Install runtime dependencies only
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    postgresql-client \
-    && rm -rf /var/lib/apt/lists/*
 
 # Copy Python packages from builder
 COPY --from=builder /root/.local /root/.local

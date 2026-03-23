@@ -1,40 +1,42 @@
 # Render.com Deployment — CHRONOS Adaptive Ambient Display System
 # ================================================================
-# Streamlit Web Application with PostgreSQL Backend
+# Streamlit Web Application with SQLite Backend
 # Images stored on Cloudinary (persistent across restarts).
-# User accounts, preferences, interaction logs stored in PostgreSQL.
+# User accounts, preferences, and logs stored in SQLite (chronos.db).
 #
-# ⚠️  IMPORTANT: Render YAML blueprints don't support PostgreSQL service definitions.
-#     Follow the setup steps below BEFORE connecting this repo to Render.
+# ⚠️  NOTE ON DATA PERSISTENCE:
+#     Render's free tier uses an ephemeral filesystem.
+#     chronos.db is recreated on every redeploy/restart — you will need
+#     to re-register your account after each deploy.
+#     Images are safe: they live on Cloudinary and are never affected.
+#
+#     To persist accounts across deploys, upgrade to a paid Render plan
+#     and add a Disk mounted at /data — then change the SQLite path in
+#     database/postgres_schema.py to /data/chronos.db.
 #
 # SETUP INSTRUCTIONS:
 # ===================
-# 1. Create PostgreSQL Database on Render:
-#    - Go to https://dashboard.render.com
-#    - Click "New +" → "PostgreSQL"
-#    - Name: chronos-db
-#    - Plan: Free
-#    - Create Database
-#    - Copy the "Internal Database URL" (not external)
-#
-# 2. Connect this repo:
+# 1. Connect this repo to Render:
 #    - Go to https://dashboard.render.com
 #    - Click "New +" → "Web Service"
 #    - Connect your GitHub repo (creator-cypher/CHRONOS-Project)
 #    - Name: chronos-aura
 #    - Runtime: Python
 #    - Build Command: pip install -r requirements.txt
-#    - Start Command: streamlit run app.py --server.address=0.0.0.0 --server.port=$PORT --server.headless=true --server.enableCORS=false
+#    - Start Command: streamlit run app.py ...  (auto-filled from below)
 #    - Plan: Free
 #    - Create Service
 #
-# 3. Set Environment Variables in the web service:
+# 2. Set Environment Variables in the web service:
 #    - Go to Service Settings → Environment
-#    - Add three variables:
+#    - Add two variables:
 #      GEMINI_API_KEY = <your Google Cloud API key>
 #      CLOUDINARY_URL = <your Cloudinary URL>
-#      DATABASE_URL = <PostgreSQL Internal URL from step 1>
+#    - Do NOT set DATABASE_URL — the app will use SQLite automatically
 #    - Save & deploy
+#
+# 3. If DATABASE_URL is already set in Render dashboard, DELETE it.
+#    (Environment → find DATABASE_URL → delete it → save)
 
 services:
   - type: web
@@ -52,8 +54,6 @@ services:
       - key: GEMINI_API_KEY
         sync: false
       - key: CLOUDINARY_URL
-        sync: false
-      - key: DATABASE_URL
         sync: false
       - key: PYTHONUNBUFFERED
         value: "1"
