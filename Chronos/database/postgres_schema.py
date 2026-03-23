@@ -35,9 +35,13 @@ if not DATABASE_URL:
         "Locally: Add DATABASE_URL to .env file (e.g., postgresql://user:pass@localhost/dbname)"
     )
 
+# Add SSL requirement for external PostgreSQL URLs
+if "dpg-" in DATABASE_URL and "?sslmode" not in DATABASE_URL:
+    DATABASE_URL += "?sslmode=require"
+
 # Use NullPool for Render/Cloud deployments (closes idle connections)
-if "render.com" in DATABASE_URL or "heroku" in DATABASE_URL:
-    engine = create_engine(DATABASE_URL, poolclass=NullPool)
+if "render.com" in DATABASE_URL or "heroku" in DATABASE_URL or "dpg-" in DATABASE_URL:
+    engine = create_engine(DATABASE_URL, poolclass=NullPool, connect_args={"connect_timeout": 10})
 else:
     engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 
