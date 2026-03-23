@@ -19,7 +19,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 from sqlalchemy import (
     create_engine, Column, String, Integer, Float, DateTime, Boolean, Text,
-    ForeignKey, CheckConstraint, UniqueConstraint, Index, JSON
+    ForeignKey, CheckConstraint, UniqueConstraint, Index, JSON, text
 )
 from sqlalchemy.orm import declarative_base, Session, sessionmaker
 from sqlalchemy.pool import NullPool, StaticPool
@@ -47,13 +47,17 @@ try:
             connect_args={"check_same_thread": False},
         )
     else:
-        # PostgreSQL (Render / external)
+        # PostgreSQL (any external provider — Render, AWS RDS, Neon, Supabase, etc.)
+        # Append sslmode=require for Render-hosted instances that omit it
         if "dpg-" in DATABASE_URL and "?sslmode" not in DATABASE_URL:
             DATABASE_URL += "?sslmode=require"
-        if "render.com" in DATABASE_URL or "heroku" in DATABASE_URL or "dpg-" in DATABASE_URL:
-            engine = create_engine(DATABASE_URL, poolclass=NullPool, connect_args={"connect_timeout": 5})
-        else:
-            engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+        # Use NullPool for all external PostgreSQL: creates a fresh connection per
+        # request, avoiding stale-connection errors after instance sleep/restart.
+        engine = create_engine(
+            DATABASE_URL,
+            poolclass=NullPool,
+            connect_args={"connect_timeout": 10},
+        )
 
     SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
 except Exception as e:
@@ -123,7 +127,7 @@ class UserPreference(Base):
     """User-facing configuration singleton"""
     __tablename__ = "user_preferences"
 
-    id = Column(Integer, primary_key=True, default=1)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     preferred_mood = Column(String(50), nullable=False, default="calm")
     sensitivity = Column(String(20), nullable=False, default="medium")
     time_mood_map = Column(JSON, nullable=False, default=dict)
@@ -160,7 +164,7 @@ class DisplayConfig(Base):
     """System-wide configuration singleton"""
     __tablename__ = "display_config"
 
-    id = Column(Integer, primary_key=True, default=1)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     poll_interval_seconds = Column(Integer, nullable=False, default=300)
     transition_duration_ms = Column(Integer, nullable=False, default=1500)
     show_reasoning_overlay = Column(Boolean, nullable=False, default=True)
@@ -269,5 +273,22 @@ def init_database():
             if not db.query(Preset).filter_by(name=name).first():
                 db.add(Preset(name=name, mood=mood, sensitivity=sens, is_default=True))
         db.commit()
+
+        # PostgreSQL: advance sequences past the explicitly seeded id=1 rows so
+        # the next autoincrement value doesn't collide with the singleton rows.
+        # (SQLite uses ROWID autoincrement which handles this automatically.)
+        if not _using_sqlite:
+            for tbl, col in [
+                ("user_preferences", "id"),
+                ("display_config",   "id"),
+                ("presets",          "id"),
+            ]:
+                db.execute(text(
+                    f"SELECT setval("
+                    f"pg_get_serial_sequence('{tbl}', '{col}'), "
+                    f"GREATEST((SELECT MAX({col}) FROM {tbl}), 1)"
+                    f")"
+                ))
+            db.commit()
     finally:
         db.close()
