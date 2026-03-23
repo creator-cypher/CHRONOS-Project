@@ -8,6 +8,7 @@ headless = true
 
 [theme]
 base = "dark"
+primaryColor = "#a78bfa"
 textColor = "#f0f0f0"
 backgroundColor = "#090909"
 secondaryBackgroundColor = "#07070c"

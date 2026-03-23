@@ -1309,7 +1309,8 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                     df = pd.DataFrame(data)
                     if not df.empty and "likes" in df.columns:
                         chart_df = df.set_index("title")[["likes", "skips"]].head(10)
-                        st.bar_chart(chart_df)
+                        if chart_df[["likes", "skips"]].sum().sum() > 0:
+                            st.bar_chart(chart_df)
                         # Leaderboards
                         st.markdown("<p style='font-size:0.6rem;color:rgba(255,255,255,0.4);"
                                     "margin:8px 0 2px'>Most Liked</p>", unsafe_allow_html=True)
@@ -1330,12 +1331,14 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                 data = cached_mood_over_time(30)
                 if data:
                     df = pd.DataFrame(data)
-                    if not df.empty:
+                    if not df.empty and df["count"].sum() > 0:
                         pivot = df.pivot_table(
                             index="date", columns="mood", values="count",
                             fill_value=0, aggfunc="sum",
                         )
                         st.area_chart(pivot)
+                    else:
+                        st.caption("No mood history yet.")
                 else:
                     st.caption("No mood history yet.")
 
@@ -1343,8 +1346,10 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                 data = cached_hourly_usage()
                 if data:
                     df = pd.DataFrame(data)
-                    if not df.empty:
+                    if not df.empty and df["count"].sum() > 0:
                         st.bar_chart(df.set_index("hour")["count"])
+                    else:
+                        st.caption("No usage data yet.")
                 else:
                     st.caption("No usage data yet.")
 
