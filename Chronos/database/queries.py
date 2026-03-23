@@ -580,10 +580,15 @@ def get_preferences(user_id: str = "") -> dict:
         if user_id:
             pref = session.query(UserPreference).filter(UserPreference.user_id == user_id).first()
             if not pref:
-                # Create per-user preferences row
-                pref = UserPreference(user_id=user_id)
-                session.add(pref)
-                session.commit()
+                try:
+                    # Create per-user preferences row
+                    pref = UserPreference(user_id=user_id)
+                    session.add(pref)
+                    session.commit()
+                except Exception:
+                    # If creation fails (e.g., duplicate key), just return empty dict
+                    session.rollback()
+                    return {}
         else:
             pref = session.query(UserPreference).filter(UserPreference.id == 1).first()
 
@@ -621,10 +626,15 @@ def update_preferences(user_id: str = "", **kwargs) -> None:
             # Ensure per-user row exists
             pref = session.query(UserPreference).filter(UserPreference.user_id == user_id).first()
             if not pref:
-                pref = UserPreference(user_id=user_id)
-                session.add(pref)
-                session.commit()
-                pref = session.query(UserPreference).filter(UserPreference.user_id == user_id).first()
+                try:
+                    pref = UserPreference(user_id=user_id)
+                    session.add(pref)
+                    session.commit()
+                    pref = session.query(UserPreference).filter(UserPreference.user_id == user_id).first()
+                except Exception:
+                    # If creation fails, just retrieve what's there
+                    session.rollback()
+                    pref = session.query(UserPreference).filter(UserPreference.user_id == user_id).first()
         else:
             pref = session.query(UserPreference).filter(UserPreference.id == 1).first()
 
@@ -634,6 +644,8 @@ def update_preferences(user_id: str = "", **kwargs) -> None:
                     setattr(pref, key, value)
             pref.updated_at = datetime.now(timezone.utc)
             session.commit()
+    except Exception:
+        session.rollback()
     finally:
         session.close()
 
