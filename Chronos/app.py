@@ -1336,7 +1336,9 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                             index="date", columns="mood", values="count",
                             fill_value=0, aggfunc="sum",
                         )
-                        st.area_chart(pivot)
+                        # Only render if at least one cell is non-zero
+                        if not pivot.empty and pivot.values.sum() > 0:
+                            st.area_chart(pivot)
                     else:
                         st.caption("No mood history yet.")
                 else:
