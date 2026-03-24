@@ -1028,24 +1028,18 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
 
         # ── Pro: Mood Schedule ────────────────────────────────────────────
         if profile_type == "Professional":
-            with st.expander("\u23F0  Mood Schedule", expanded=False):
+            with st.expander("\u29BE  Mood Schedule", expanded=False):
                 st.caption("Pin a mood to each time period. Takes priority over your global preference.")
                 _all_moods_pro = ["calm", "energetic", "joyful", "melancholic", "mysterious", "neutral"]
-                _periods_cfg = [
-                    ("dawn",      "\U0001F305"),
-                    ("morning",   "\u2600\uFE0F"),
-                    ("afternoon", "\U0001F324"),
-                    ("evening",   "\U0001F306"),
-                    ("night",     "\U0001F319"),
-                ]
+                _periods_cfg = ["dawn", "morning", "afternoon", "evening", "night"]
                 _time_map = dict(prefs.get("time_mood_map") or {})
                 _new_map: dict = {}
-                for _period, _icon in _periods_cfg:
+                for _period in _periods_cfg:
                     _c1, _c2 = st.columns([1.1, 2])
                     with _c1:
                         st.markdown(
                             f"<div style='font-size:0.62rem;padding-top:8px;color:rgba(255,255,255,0.7)'>"
-                            f"{_icon} {_period.capitalize()}</div>",
+                            f"{bi(PERIOD_ICONS_BI[_period], '0.85em')} {_period.capitalize()}</div>",
                             unsafe_allow_html=True,
                         )
                     with _c2:
@@ -1073,7 +1067,7 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
 
         # ── Pro: Scoring Weights ──────────────────────────────────────────
         if profile_type == "Professional":
-            with st.expander("\u2696  Scoring Weights", expanded=False):
+            with st.expander("\u29C6  Scoring Weights", expanded=False):
                 st.caption("Fine-tune how each factor is weighted when the AI picks an image.")
                 _time_map_w   = dict(prefs.get("time_mood_map") or {})
                 _saved_w      = _time_map_w.get("__weights") or {}
