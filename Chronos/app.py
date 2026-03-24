@@ -621,23 +621,23 @@ def inject_sidebar_fab() -> None:
             }
 
             /* ── Toggle click with safety checks ──────────────────────────── */
+            /* querySelector falls back to the container itself for Streamlit  */
+            /* versions where stSidebarCollapseButton IS the button element.   */
+            function findBtn(testId) {
+                return pd.querySelector('[data-testid="' + testId + '"] button')
+                    || pd.querySelector('[data-testid="' + testId + '"]');
+            }
+
             fab.addEventListener('click', function (e) {
                 e.preventDefault();
-                var collapseBtn = pd.querySelector(
-                    '[data-testid="stSidebarCollapseButton"] button');
-                var expandBtn = pd.querySelector(
-                    '[data-testid="collapsedControl"] button');
+                var collapseBtn = findBtn('stSidebarCollapseButton');
+                var expandBtn   = findBtn('collapsedControl');
 
                 if (sidebarOpen()) {
-                    if (collapseBtn) {
-                        collapseBtn.click();
-                    }
+                    if (collapseBtn) collapseBtn.click();
                 } else {
-                    if (expandBtn) {
-                        expandBtn.click();
-                    } else if (collapseBtn) {
-                        collapseBtn.click();
-                    }
+                    if (expandBtn)        expandBtn.click();
+                    else if (collapseBtn) collapseBtn.click();
                 }
             });
 
