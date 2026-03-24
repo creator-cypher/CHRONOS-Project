@@ -948,8 +948,12 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
             key="mood_select",
         )
         if new_mood != current_mood:
-            update_preferences(user_id, preferred_mood=new_mood)
-            prefs["preferred_mood"] = new_mood
+            try:
+                update_preferences(user_id, preferred_mood=new_mood)
+                prefs["preferred_mood"] = new_mood
+                st.toast(f"Mood set to {new_mood.capitalize()}")
+            except Exception as e:
+                st.toast(f"Failed to save mood: {e}", icon="🚨")
 
         # ── AI Sensitivity ────────────────────────────────────────────────
         SENS        = ["low", "medium", "high"]
@@ -965,8 +969,13 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
         )
         new_sens = SENS[SENS_LABELS.index(new_sens_idx)]
         if new_sens != current_sens:
-            update_preferences(user_id, sensitivity=new_sens)
-            prefs["sensitivity"] = new_sens
+            try:
+                update_preferences(user_id, sensitivity=new_sens)
+                prefs["sensitivity"] = new_sens
+                _sens_label = {"low": "Manual", "medium": "Balanced", "high": "Full AI"}.get(new_sens, new_sens)
+                st.toast(f"AI Sensitivity → {_sens_label}")
+            except Exception as e:
+                st.toast(f"Failed to save sensitivity: {e}", icon="🚨")
 
         # ── Quick Presets (Enhancement 8) ─────────────────────────────────
         presets = get_presets()
@@ -1012,16 +1021,21 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
             help="When ON, the AI is bypassed entirely. Use Prev/Next to navigate.",
         )
         if override_on != bool(prefs.get("override_active", 0)):
-            if override_on:
-                all_imgs = cached_get_all_images(user_id=user_id)
-                if not all_imgs:
-                    st.warning("No images in library. Upload one first to use Manual Override.")
-                    return
-                update_preferences(user_id, override_active=1, override_image_id=all_imgs[0]["id"])
-            else:
-                update_preferences(user_id, override_active=0, override_image_id=None)
-            st.session_state["_force_refresh"] = True
-            st.rerun()
+            try:
+                if override_on:
+                    all_imgs = cached_get_all_images(user_id=user_id)
+                    if not all_imgs:
+                        st.warning("No images in library. Upload one first to use Manual Override.")
+                        return
+                    update_preferences(user_id, override_active=1, override_image_id=all_imgs[0]["id"])
+                    st.toast("Manual Override ON — AI bypassed")
+                else:
+                    update_preferences(user_id, override_active=0, override_image_id=None)
+                    st.toast("Manual Override OFF — AI resumed")
+                st.session_state["_force_refresh"] = True
+                st.rerun()
+            except Exception as e:
+                st.toast(f"Failed to toggle override: {e}", icon="🚨")
 
         # ── Refresh ────────────────────────────────────────────────────────
         if st.button("\u27F3  Refresh Now", use_container_width=True):
@@ -1192,17 +1206,21 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                                         with st.spinner("Analysing…"):
                                             r = _run_analysis(img["id"], src)
                                         if r.success:
-                                            st.success(f"{r.primary_mood}")
+                                            st.toast(f"Analysed: {r.primary_mood} · {r.optimal_time}")
                                         else:
-                                            st.error(r.error_message[:40])
+                                            st.toast(f"Analysis failed: {r.error_message[:60]}", icon="🚨")
                                         _invalidate_caches()
                                         st.rerun()
                         with btn_cols[1]:
                             if st.button("\u2715", key=f"del_{img['id']}", help="Remove"):
-                                deactivate_image(img["id"])
-                                st.session_state.selected_ids.discard(img["id"])
-                                _invalidate_caches()
-                                st.rerun()
+                                try:
+                                    deactivate_image(img["id"])
+                                    st.session_state.selected_ids.discard(img["id"])
+                                    st.toast(f"Removed: {img.get('title') or 'Image'}")
+                                    _invalidate_caches()
+                                    st.rerun()
+                                except Exception as e:
+                                    st.toast(f"Failed to remove image: {e}", icon="🚨")
 
                 # Bulk action buttons
                 selected = st.session_state.selected_ids
@@ -1312,16 +1330,19 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                     )
 
                     if st.button("Save Schedule", key=f"sched_save_{sid}", use_container_width=True):
-                        window_str = "any" if set(s_window) == set(all_periods) or not s_window else ",".join(s_window)
-                        update_image_schedule(
-                            sid,
-                            str(s_start) if s_start else "",
-                            str(s_end) if s_end else "",
-                            window_str,
-                        )
-                        _invalidate_caches()
-                        st.toast("Schedule saved!")
-                        st.rerun()
+                        try:
+                            window_str = "any" if set(s_window) == set(all_periods) or not s_window else ",".join(s_window)
+                            update_image_schedule(
+                                sid,
+                                str(s_start) if s_start else "",
+                                str(s_end) if s_end else "",
+                                window_str,
+                            )
+                            _invalidate_caches()
+                            st.toast(f"Schedule saved for {sched_target.get('title') or 'image'}")
+                            st.rerun()
+                        except Exception as e:
+                            st.toast(f"Failed to save schedule: {e}", icon="🚨")
 
         st.divider()
 
@@ -1410,12 +1431,15 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
             )
 
             if st.button("Save AI Settings", use_container_width=True, key="save_ai_settings"):
-                update_display_config(
-                    analysis_depth=depth.lower(),
-                    analysis_focus=",".join(focus),
-                    custom_prompt=custom,
-                )
-                st.toast("AI settings saved!")
+                try:
+                    update_display_config(
+                        analysis_depth=depth.lower(),
+                        analysis_focus=",".join(focus),
+                        custom_prompt=custom,
+                    )
+                    st.toast("AI analysis settings saved")
+                except Exception as e:
+                    st.toast(f"Failed to save AI settings: {e}", icon="🚨")
                 st.rerun()
 
         st.divider()
