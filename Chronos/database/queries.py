@@ -560,7 +560,7 @@ def get_hourly_usage() -> list[dict]:
         session.close()
 
 
-def get_mood_over_time(days: int = 30) -> list[dict]:
+def get_mood_over_time(days: int = 30, user_id: str = "") -> list[dict]:
     """Daily mood distribution from context_logs for the last N days."""
     session = _get_session()
     try:
@@ -568,32 +568,85 @@ def get_mood_over_time(days: int = 30) -> list[dict]:
         from sqlalchemy.types import Date
 
         if _using_sqlite:
-            # SQLite: use strftime for date grouping, datetime() for cutoff
             date_expr = func.strftime('%Y-%m-%d', ContextLog.timestamp)
             cutoff = text(f"datetime('now', '-{days} days')")
         else:
-            # PostgreSQL
             date_expr = cast(ContextLog.timestamp, Date)
             cutoff = func.current_timestamp() - text(f"interval '{days} days'")
 
-        results = session.query(
+        query = session.query(
             date_expr.label('date'),
             ContextLog.detected_mood,
             func.count(ContextLog.id).label('count')
-        ).filter(
-            ContextLog.timestamp >= cutoff
-        ).group_by(
-            date_expr,
-            ContextLog.detected_mood
-        ).order_by(
-            date_expr
-        ).all()
+        ).filter(ContextLog.timestamp >= cutoff)
+
+        if user_id:
+            query = query.filter(ContextLog.user_id == user_id)
+
+        results = query.group_by(
+            date_expr, ContextLog.detected_mood
+        ).order_by(date_expr).all()
+
+        return [{"date": r[0], "mood": r[1], "count": r[2]} for r in results]
+    finally:
+        session.close()
+
+
+def get_top_images_by_display(user_id: str = "", limit: int = 10) -> list[dict]:
+    """Top images ranked by display count — Pro analytics."""
+    session = _get_session()
+    try:
+        query = session.query(Image).filter(
+            Image.is_active == True,
+            Image.is_analyzed == True,
+        )
+        if user_id:
+            query = query.filter(Image.user_id == user_id)
+        images = query.order_by(Image.display_count.desc()).limit(limit).all()
+        return [
+            {
+                "id": img.id,
+                "title": img.title or "Untitled",
+                "primary_mood": img.primary_mood,
+                "display_count": img.display_count,
+                "base_score": img.base_score,
+            }
+            for img in images
+        ]
+    finally:
+        session.close()
+
+
+def get_score_trend(days: int = 30, user_id: str = "") -> list[dict]:
+    """Daily average AI confidence score from context_logs — Pro analytics."""
+    session = _get_session()
+    try:
+        from sqlalchemy import cast
+        from sqlalchemy.types import Date
+
+        if _using_sqlite:
+            date_expr = func.strftime('%Y-%m-%d', ContextLog.timestamp)
+            cutoff = text(f"datetime('now', '-{days} days')")
+        else:
+            date_expr = cast(ContextLog.timestamp, Date)
+            cutoff = func.current_timestamp() - text(f"interval '{days} days'")
+
+        query = session.query(
+            date_expr.label('date'),
+            func.avg(ContextLog.selection_score).label('avg_score'),
+            func.count(ContextLog.id).label('decisions'),
+        ).filter(ContextLog.timestamp >= cutoff)
+
+        if user_id:
+            query = query.filter(ContextLog.user_id == user_id)
+
+        results = query.group_by(date_expr).order_by(date_expr).all()
 
         return [
             {
-                "date": r[0],
-                "mood": r[1],
-                "count": r[2],
+                "date": str(r[0]),
+                "avg_score": round(float(r[1]), 3) if r[1] else 0.0,
+                "decisions": r[2],
             }
             for r in results
         ]

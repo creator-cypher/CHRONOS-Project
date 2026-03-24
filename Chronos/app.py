@@ -45,9 +45,10 @@ from database.queries import (
     get_display_config, update_display_config,
     get_presets, save_preset, delete_preset, apply_preset,
     update_image_error, update_image_schedule,
+    get_top_images_by_display, get_score_trend,
 )
 from logic.context              import get_current_context
-from logic.engine               import select_best_image
+from logic.engine               import select_best_image, WEIGHT_PROFILES
 from services.vision            import analyze_image
 from services.cloudinary_upload import upload_image as cloudinary_upload
 from auth                       import init_auth_state, render_auth_page, logout, get_theme_overrides
@@ -82,8 +83,16 @@ def cached_hourly_usage():
     return get_hourly_usage()
 
 @st.cache_data(ttl=120)
-def cached_mood_over_time(days=30):
-    return get_mood_over_time(days)
+def cached_mood_over_time(days=30, user_id=""):
+    return get_mood_over_time(days, user_id=user_id)
+
+@st.cache_data(ttl=120)
+def cached_top_images_by_display(user_id="", limit=10):
+    return get_top_images_by_display(user_id=user_id, limit=limit)
+
+@st.cache_data(ttl=120)
+def cached_score_trend(days=30, user_id=""):
+    return get_score_trend(days=days, user_id=user_id)
 
 
 # =============================================================================
@@ -1017,6 +1026,97 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                         st.toast(f"Deleted preset '{p['name']}'")
                         st.rerun()
 
+        # ── Pro: Mood Schedule ────────────────────────────────────────────
+        if profile_type == "Professional":
+            with st.expander("\u23F0  Mood Schedule", expanded=False):
+                st.caption("Pin a mood to each time period. Takes priority over your global preference.")
+                _all_moods_pro = ["calm", "energetic", "joyful", "melancholic", "mysterious", "neutral"]
+                _periods_cfg = [
+                    ("dawn",      "\U0001F305"),
+                    ("morning",   "\u2600\uFE0F"),
+                    ("afternoon", "\U0001F324"),
+                    ("evening",   "\U0001F306"),
+                    ("night",     "\U0001F319"),
+                ]
+                _time_map = dict(prefs.get("time_mood_map") or {})
+                _new_map: dict = {}
+                for _period, _icon in _periods_cfg:
+                    _c1, _c2 = st.columns([1.1, 2])
+                    with _c1:
+                        st.markdown(
+                            f"<div style='font-size:0.62rem;padding-top:8px;color:rgba(255,255,255,0.7)'>"
+                            f"{_icon} {_period.capitalize()}</div>",
+                            unsafe_allow_html=True,
+                        )
+                    with _c2:
+                        _opts = ["— Auto —"] + _all_moods_pro
+                        _cur  = _time_map.get(_period, "— Auto —")
+                        if _cur not in _opts:
+                            _cur = "— Auto —"
+                        _sel = st.selectbox(
+                            "", _opts, index=_opts.index(_cur),
+                            key=f"tmm_{_period}", label_visibility="collapsed",
+                        )
+                        if _sel != "— Auto —":
+                            _new_map[_period] = _sel
+                # Preserve stored custom weights key
+                if "__weights" in _time_map:
+                    _new_map["__weights"] = _time_map["__weights"]
+                if st.button("Save Schedule", use_container_width=True, key="save_mood_schedule"):
+                    try:
+                        update_preferences(user_id, time_mood_map=_new_map)
+                        st.toast("Mood schedule saved")
+                        st.session_state["_force_refresh"] = True
+                        st.rerun()
+                    except Exception as e:
+                        st.toast(f"Failed to save schedule: {e}", icon="\U0001F6A8")
+
+        # ── Pro: Scoring Weights ──────────────────────────────────────────
+        if profile_type == "Professional":
+            with st.expander("\u2696  Scoring Weights", expanded=False):
+                st.caption("Fine-tune how each factor is weighted when the AI picks an image.")
+                _time_map_w   = dict(prefs.get("time_mood_map") or {})
+                _saved_w      = _time_map_w.get("__weights") or {}
+                _default_w    = WEIGHT_PROFILES.get(prefs.get("sensitivity", "medium"), WEIGHT_PROFILES["medium"])
+                _w_time = st.slider("Time Match",      0.0, 1.0, float(_saved_w.get("time",       _default_w["time"])),       0.05, key="pro_w_time")
+                _w_mood = st.slider("Mood Match",      0.0, 1.0, float(_saved_w.get("mood",       _default_w["mood"])),       0.05, key="pro_w_mood")
+                _w_pref = st.slider("Preference",      0.0, 1.0, float(_saved_w.get("preference", _default_w["preference"])), 0.05, key="pro_w_pref")
+                _w_qual = st.slider("Image Quality",   0.0, 1.0, float(_saved_w.get("quality",    _default_w["quality"])),    0.05, key="pro_w_qual")
+                _w_rec  = st.slider("Recency Penalty", 0.0, 1.0, float(prefs.get("recency_weight", 0.2)),                     0.05, key="pro_w_rec")
+                _total  = _w_time + _w_mood + _w_pref + _w_qual
+                _total_color = "#34d399" if 0.95 <= _total <= 1.05 else "#fbbf24"
+                st.markdown(
+                    f"<div style='font-size:0.58rem;color:{_total_color};margin-top:4px'>"
+                    f"Total weight: {_total:.2f} &nbsp;·&nbsp; ideally 1.0</div>",
+                    unsafe_allow_html=True,
+                )
+                _wc1, _wc2 = st.columns(2)
+                with _wc1:
+                    if st.button("Save", use_container_width=True, key="save_pro_weights"):
+                        try:
+                            _map_upd = {k: v for k, v in _time_map_w.items() if not k.startswith("__")}
+                            _map_upd["__weights"] = {
+                                "time": _w_time, "mood": _w_mood,
+                                "preference": _w_pref, "quality": _w_qual,
+                                "recency": _w_rec,
+                            }
+                            update_preferences(user_id, time_mood_map=_map_upd, recency_weight=_w_rec)
+                            st.toast("Scoring weights saved")
+                            st.session_state["_force_refresh"] = True
+                            st.rerun()
+                        except Exception as e:
+                            st.toast(f"Failed: {e}", icon="\U0001F6A8")
+                with _wc2:
+                    if st.button("Reset", use_container_width=True, key="reset_pro_weights"):
+                        try:
+                            _map_rst = {k: v for k, v in _time_map_w.items() if not k.startswith("__")}
+                            update_preferences(user_id, time_mood_map=_map_rst, recency_weight=0.2)
+                            st.toast("Weights reset to defaults")
+                            st.session_state["_force_refresh"] = True
+                            st.rerun()
+                        except Exception as e:
+                            st.toast(f"Failed: {e}", icon="\U0001F6A8")
+
         st.divider()
 
         # ── Manual Override ───────────────────────────────────────────────
@@ -1351,10 +1451,11 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
 
         st.divider()
 
-        # ── Analytics Dashboard (Enhancement 4) ──────────────────────────
+        # ── Analytics Dashboard ───────────────────────────────────────────
         with st.expander("\u2261  Analytics", expanded=False):
+            _pro_views = ["Display Stats", "Score Trend"] if profile_type == "Professional" else []
             analytics_view = st.selectbox(
-                "View", ["Interactions", "Mood Trends", "Usage Patterns"],
+                "View", ["Interactions", "Mood Trends", "Usage Patterns"] + _pro_views,
                 key="analytics_view", label_visibility="collapsed",
             )
 
@@ -1366,7 +1467,6 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                         chart_df = df.set_index("title")[["likes", "skips"]].head(10)
                         if chart_df[["likes", "skips"]].sum().sum() > 0:
                             st.bar_chart(chart_df)
-                        # Leaderboards
                         st.markdown("<p style='font-size:0.6rem;color:rgba(255,255,255,0.4);"
                                     "margin:8px 0 2px'>Most Liked</p>", unsafe_allow_html=True)
                         for _, row in df.nlargest(3, "likes").iterrows():
@@ -1383,7 +1483,12 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                     st.caption("No interaction data yet.")
 
             elif analytics_view == "Mood Trends":
-                data = cached_mood_over_time(30)
+                _days_opts = {"7 days": 7, "30 days": 30, "60 days": 60, "90 days": 90}
+                _days_key  = st.selectbox("Window", list(_days_opts.keys()),
+                                          index=1, key="mood_trend_window",
+                                          label_visibility="collapsed") if profile_type == "Professional" else "30 days"
+                _days_val  = _days_opts.get(_days_key, 30) if profile_type == "Professional" else 30
+                data = cached_mood_over_time(_days_val, user_id=user_id)
                 if data:
                     df = pd.DataFrame(data)
                     if not df.empty and df["count"].sum() > 0:
@@ -1391,7 +1496,6 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                             index="date", columns="mood", values="count",
                             fill_value=0, aggfunc="sum",
                         )
-                        # Only render if at least one cell is non-zero
                         if not pivot.empty and pivot.values.sum() > 0:
                             st.area_chart(pivot)
                     else:
@@ -1409,6 +1513,55 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                         st.caption("No usage data yet.")
                 else:
                     st.caption("No usage data yet.")
+
+            elif analytics_view == "Display Stats":
+                # Pro only — top images by how many times the AI selected them
+                data = cached_top_images_by_display(user_id=user_id, limit=10)
+                if data:
+                    df = pd.DataFrame(data)
+                    if not df.empty and df["display_count"].sum() > 0:
+                        st.bar_chart(df.set_index("title")["display_count"])
+                    MOOD_COLORS = {
+                        "calm": "#60a5fa", "energetic": "#fbbf24", "joyful": "#34d399",
+                        "melancholic": "#c084fc", "mysterious": "#818cf8", "neutral": "#94a3b8",
+                    }
+                    for _, row in df.iterrows():
+                        mood_c = MOOD_COLORS.get(row["primary_mood"], "#94a3b8")
+                        st.markdown(
+                            f"<div style='display:flex;justify-content:space-between;"
+                            f"align-items:center;margin:3px 0'>"
+                            f"<span style='font-size:0.65rem;font-weight:300'>{row['title']}</span>"
+                            f"<span style='font-size:0.60rem;color:{mood_c}'>"
+                            f"{row['display_count']} &nbsp;{bi('display', '0.65em', mood_c)}</span>"
+                            f"</div>",
+                            unsafe_allow_html=True,
+                        )
+                else:
+                    st.caption("No display data yet.")
+
+            elif analytics_view == "Score Trend":
+                # Pro only — AI confidence over time
+                _st_opts = {"7 days": 7, "30 days": 30, "60 days": 60, "90 days": 90}
+                _st_key  = st.selectbox("Window", list(_st_opts.keys()),
+                                        index=1, key="score_trend_window",
+                                        label_visibility="collapsed")
+                _st_days = _st_opts.get(_st_key, 30)
+                data = cached_score_trend(_st_days, user_id=user_id)
+                if data:
+                    df = pd.DataFrame(data)
+                    if not df.empty and df["avg_score"].sum() > 0:
+                        st.line_chart(df.set_index("date")["avg_score"])
+                        _avg = df["avg_score"].mean()
+                        _tot = df["decisions"].sum()
+                        st.markdown(
+                            f"<div style='font-size:0.60rem;color:rgba(255,255,255,0.4);margin-top:4px'>"
+                            f"Avg confidence: {_avg:.1%} &nbsp;·&nbsp; {_tot} decisions</div>",
+                            unsafe_allow_html=True,
+                        )
+                    else:
+                        st.caption("No score data yet.")
+                else:
+                    st.caption("No score data yet.")
 
         # ── AI Analysis Settings (Enhancement 10) ────────────────────────
         with st.expander("\u2699  AI Analysis Settings", expanded=False):

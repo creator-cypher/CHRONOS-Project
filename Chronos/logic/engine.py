@@ -169,7 +169,12 @@ def select_best_image(
             return None
 
     # ── 4. Score ──────────────────────────────────────────────────────────
-    weights         = WEIGHT_PROFILES.get(prefs.get("sensitivity", "medium"), WEIGHT_PROFILES["medium"])
+    # Professional accounts can store custom weights in time_mood_map["__weights"]
+    _stored_w = (prefs.get("time_mood_map") or {}).get("__weights")
+    if profile_type == "Professional" and isinstance(_stored_w, dict) and _stored_w:
+        weights = _stored_w
+    else:
+        weights = WEIGHT_PROFILES.get(prefs.get("sensitivity", "medium"), WEIGHT_PROFILES["medium"])
     recently_shown  = get_recently_shown_ids(window_minutes=60)
     target_mood     = _resolve_mood(context, prefs)
 
