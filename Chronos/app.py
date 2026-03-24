@@ -939,12 +939,17 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
         st.divider()
 
         # ── Mood Preference ───────────────────────────────────────────────
-        MOODS = ["calm", "energetic", "joyful", "melancholic", "mysterious", "neutral"]
+        from logic.engine import KIDS_BLOCKED_MOODS
+        _all_moods = ["calm", "energetic", "joyful", "melancholic", "mysterious", "neutral"]
+        MOODS = [m for m in _all_moods if profile_type != "Kids" or m not in KIDS_BLOCKED_MOODS]
         current_mood = prefs.get("preferred_mood", "calm")
+        # If current saved mood is blocked for Kids, silently fall back to calm
+        if current_mood not in MOODS:
+            current_mood = "calm"
         new_mood = st.selectbox(
             "Preferred Mood",
             MOODS,
-            index=MOODS.index(current_mood) if current_mood in MOODS else 0,
+            index=MOODS.index(current_mood),
             key="mood_select",
         )
         if new_mood != current_mood:
@@ -1568,6 +1573,10 @@ def main() -> None:
     if _should_refresh or "_sel_result" not in st.session_state:
         result = select_best_image(context, user_id=user_id, profile_type=profile_type)
         st.session_state["_sel_result"] = result
+        # Show Kids safety filter notes as toasts on every fresh selection
+        if result and result.filter_notes:
+            for note in result.filter_notes:
+                st.toast(note, icon="🔒")
     else:
         result = st.session_state["_sel_result"]
 

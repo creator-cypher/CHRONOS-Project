@@ -103,6 +103,7 @@ class SelectionResult:
     reasoning_text:  str              = ""
     was_override:    bool             = False
     context:         dict             = field(default_factory=dict)
+    filter_notes:    list[str]        = field(default_factory=list)  # Kids safety actions
 
 
 # ---------------------------------------------------------------------------
@@ -156,8 +157,13 @@ def select_best_image(
         return None
 
     # ── 3. Kids Safety Filter ─────────────────────────────────────────────
+    _filter_notes: list[str] = []
     if profile_type == "Kids":
+        before = len(candidates)
         candidates = _apply_kids_filter(candidates)
+        blocked = before - len(candidates)
+        if blocked > 0:
+            _filter_notes.append(f"Kids Safety: {blocked} image{'s' if blocked != 1 else ''} hidden due to content restrictions")
         if not candidates:
             logger.warning("Kids filter removed all candidates.")
             return None
@@ -169,6 +175,7 @@ def select_best_image(
 
     # Kids mode: override mood to prefer safe moods
     if profile_type == "Kids" and target_mood in KIDS_BLOCKED_MOODS:
+        _filter_notes.append(f"Kids Safety: '{target_mood}' mood is restricted — showing 'joyful' instead")
         target_mood = "joyful"
 
     best: Optional[SelectionResult] = None
@@ -190,6 +197,8 @@ def select_best_image(
 
     if best is None:
         return None
+
+    best.filter_notes = _filter_notes
 
     # ── 5. Persist & return ───────────────────────────────────────────────
     _write_log(best, context, user_id=user_id)
