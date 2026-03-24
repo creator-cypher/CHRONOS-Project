@@ -811,18 +811,27 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
     with st.sidebar:
         # ── User header + logout ─────────────────────────────────────────
         user_display = st.session_state.get("user_name", "") or st.session_state.get("username", "")
-        profile_badge = {"Kids": "\u2605 Kids", "Professional": "\u25C8 Pro"}.get(profile_type, "")
+        _badge_cfg = {
+            "Kids":         ("\u2605 Kids", "rgba(56,189,248,0.12)",  "rgba(56,189,248,0.25)",  "#7dd3fc"),
+            "Professional": ("\u25C8 Pro",  "rgba(52,211,153,0.10)",  "rgba(52,211,153,0.22)",  "#6ee7b7"),
+        }
+        _badge_html = ""
+        if profile_type in _badge_cfg:
+            _label, _bg, _border, _color = _badge_cfg[profile_type]
+            _badge_html = (
+                f"<span style='margin-left:6px;font-size:0.5rem;padding:2px 8px;border-radius:99px;"
+                f"background:{_bg};border:1px solid {_border};"
+                f"color:{_color};letter-spacing:0.1em;text-transform:uppercase;font-weight:600'>"
+                f"{_label}</span>"
+            )
         st.markdown(f"""
         <div style="display:flex;justify-content:space-between;align-items:center;
                     padding:14px 0 6px">
           <div>
-            <p style="font-size:0.62rem;font-weight:400;margin:0;color:rgba(255,255,255,0.65)">
-              {user_display}
-              {"<span style='margin-left:6px;font-size:0.5rem;padding:2px 8px;border-radius:99px;"
-               "background:rgba(56,189,248,0.12);border:1px solid rgba(56,189,248,0.25);"
-               "color:#7dd3fc;letter-spacing:0.1em;text-transform:uppercase;font-weight:600'>"
-               + profile_badge + "</span>" if profile_badge else ""}
-            </p>
+            <div style="font-size:0.62rem;font-weight:400;margin:0;color:rgba(255,255,255,0.65);
+                        display:flex;align-items:center;flex-wrap:wrap;gap:4px">
+              {user_display}{_badge_html}
+            </div>
           </div>
         </div>
         """, unsafe_allow_html=True)
