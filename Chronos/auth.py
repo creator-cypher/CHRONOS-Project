@@ -10,7 +10,7 @@ Profile Types
 -------------
   Standard     — Frosted Obsidian theme (dark / gold-purple accent)
   Kids         — Sky Blue theme, safety-filtered content, softer UI
-  Professional — Clean dark theme with muted tones
+  Professional — Emerald accent, sharp corners, monospace terminal aesthetic
 
 All credentials are stored locally in the SQLite database,
 ensuring complete data sovereignty — no external auth providers needed.
@@ -418,7 +418,7 @@ def get_theme_overrides(profile_type: str) -> str:
 
     Standard     → Frosted Obsidian (dark / purple-gold accent) — default, no overrides needed.
     Kids         → Sky Blue accent, softer 24px radii, friendlier feel.
-    Professional → Muted silver/slate tones, tighter spacing.
+    Professional → Emerald accent, sharp corners, JetBrains Mono reasoning panel, terminal aesthetic.
     """
     if profile_type == "Kids":
         return """
@@ -503,47 +503,160 @@ def get_theme_overrides(profile_type: str) -> str:
 
     elif profile_type == "Professional":
         return """
-        /* ═══════════════════ PROFESSIONAL THEME — Silver ════════════════ */
+        /* ═══════════════════ PROFESSIONAL THEME — Emerald ═══════════════ */
 
-        /* Accent: muted silver/slate instead of purple */
+        /* Import monospace font for the data/reasoning panels */
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500&display=swap');
+
+        /* ── Sidebar — cooler, denser, structured ──────────────────────── */
+        [data-testid="stSidebar"] {
+            background:              rgba(8,12,16,0.92) !important;
+            backdrop-filter:         blur(24px) saturate(120%) !important;
+            -webkit-backdrop-filter: blur(24px) saturate(120%) !important;
+            border-right:            1px solid rgba(52,211,153,0.12) !important;
+            box-shadow:              4px 0 32px rgba(0,0,0,0.9),
+                                     inset -1px 0 1px rgba(52,211,153,0.06) !important;
+        }
+
+        /* Accent: emerald instead of purple */
         [data-testid="stSidebar"] .stButton > button {
-            background:   rgba(148,163,184,0.08) !important;
-            border-color: rgba(148,163,184,0.22) !important;
-            color:        #cbd5e1 !important;
+            background:     rgba(52,211,153,0.07) !important;
+            border:         1px solid rgba(52,211,153,0.22) !important;
+            color:          #6ee7b7 !important;
+            border-radius:  4px !important;
+            font-family:    'JetBrains Mono', monospace !important;
+            font-size:      0.58rem !important;
+            letter-spacing: 0.12em !important;
+            text-transform: uppercase !important;
+            font-weight:    500 !important;
+            transition:     background 0.15s ease, border-color 0.15s ease !important;
         }
         [data-testid="stSidebar"] .stButton > button:hover {
-            background:   rgba(148,163,184,0.16) !important;
-            border-color: rgba(148,163,184,0.42) !important;
+            background:   rgba(52,211,153,0.14) !important;
+            border-color: rgba(52,211,153,0.42) !important;
+            box-shadow:   none !important;
         }
 
-        /* Slider thumb */
+        /* Selectbox hover — emerald */
+        [data-testid="stSidebar"] .stSelectbox [data-baseweb="select"] > div {
+            border-radius: 4px !important;
+        }
+        [data-testid="stSidebar"] .stSelectbox [data-baseweb="select"] > div:hover {
+            border-color: rgba(52,211,153,0.40) !important;
+            box-shadow:   0 0 0 2px rgba(52,211,153,0.07) !important;
+        }
+
+        /* Slider thumb — emerald, no glow */
         [data-testid="stSidebar"] [data-testid="stSelectSlider"] [role="slider"] {
-            background:  #94a3b8 !important;
-            box-shadow:  0 0 8px rgba(148,163,184,0.4) !important;
+            background:  #34d399 !important;
+            box-shadow:  none !important;
+            border:      2px solid rgba(255,255,255,0.18) !important;
+        }
+        [data-testid="stSidebar"] [data-testid="stSelectSlider"] [role="slider"]:hover {
+            box-shadow: 0 0 0 3px rgba(52,211,153,0.20) !important;
         }
 
-        /* Score fill — neutral gradient */
-        .score-fill {
-            background: linear-gradient(90deg, #94a3b8, #64748b) !important;
-        }
-
-        /* Tag chips */
-        .tag-chip {
-            background:   rgba(148,163,184,0.10) !important;
-            border-color: rgba(148,163,184,0.22) !important;
-            color:        #cbd5e1 !important;
-        }
-
-        .reasoning-score { color: #cbd5e1 !important; }
-
-        /* Tighter, more structured feel */
+        /* Expanders — sharp, structured */
         [data-testid="stSidebar"] [data-testid="stExpander"] {
-            border-radius: 6px !important;
+            border-radius: 4px !important;
+            border-color:  rgba(52,211,153,0.08) !important;
         }
-        [data-testid="stSidebar"] .stButton > button {
-            border-radius: 6px !important;
+        [data-testid="stSidebar"] [data-testid="stExpander"]:hover {
+            border-color: rgba(52,211,153,0.18) !important;
         }
-        .glass { border-radius: 12px !important; }
+        [data-testid="stSidebar"] [data-testid="stExpander"] summary {
+            font-family:    'JetBrains Mono', monospace !important;
+            font-size:      0.58rem !important;
+            letter-spacing: 0.10em !important;
+            color:          rgba(110,231,183,0.55) !important;
+        }
+        [data-testid="stSidebar"] [data-testid="stExpander"] summary:hover {
+            color: rgba(110,231,183,0.9) !important;
+        }
+
+        /* Widget labels — monospace, emerald-tinted */
+        [data-testid="stSidebar"] .stSelectbox    label,
+        [data-testid="stSidebar"] .stSlider       label,
+        [data-testid="stSidebar"] .stRadio        label,
+        [data-testid="stSidebar"] .stSelectSlider label {
+            font-family:    'JetBrains Mono', monospace !important;
+            color:          rgba(52,211,153,0.40) !important;
+            letter-spacing: 0.16em !important;
+        }
+
+        /* Dividers — emerald tint */
+        [data-testid="stSidebar"] hr {
+            border-top: 1px solid rgba(52,211,153,0.08) !important;
+        }
+
+        /* ── Reasoning overlay — data terminal look ─────────────────────── */
+        .reasoning-card {
+            border-radius: 6px !important;
+            background:    rgba(6,10,14,0.88) !important;
+            border:        1px solid rgba(52,211,153,0.18) !important;
+            box-shadow:    0 0 0 1px rgba(52,211,153,0.06),
+                           0 8px 40px rgba(0,0,0,0.7) !important;
+        }
+        .reasoning-text {
+            font-family: 'JetBrains Mono', monospace !important;
+            font-size:   0.72rem !important;
+            font-weight: 300 !important;
+            color:       rgba(200,240,220,0.80) !important;
+            line-height: 1.6 !important;
+        }
+        .reasoning-period {
+            font-family:    'JetBrains Mono', monospace !important;
+            color:          rgba(52,211,153,0.55) !important;
+            letter-spacing: 0.10em !important;
+        }
+        .reasoning-score {
+            font-family:    'JetBrains Mono', monospace !important;
+            color:          #34d399 !important;
+            font-weight:    500 !important;
+        }
+
+        /* Score bar — emerald */
+        .score-fill {
+            background: linear-gradient(90deg, #34d399, #059669) !important;
+        }
+
+        /* Tag chips — emerald */
+        .tag-chip {
+            background:     rgba(52,211,153,0.08) !important;
+            border-color:   rgba(52,211,153,0.22) !important;
+            color:          #6ee7b7 !important;
+            border-radius:  3px !important;
+            font-family:    'JetBrains Mono', monospace !important;
+        }
+
+        /* Glass card — sharper */
+        .glass { border-radius: 6px !important; }
+
+        /* AI pulse dot — emerald, no glow ring */
+        @keyframes systemPulse {
+            0%, 100% { opacity: 0.4; transform: scale(1);    box-shadow: none; }
+            50%      { opacity: 1;   transform: scale(1.35); box-shadow: 0 0 10px 3px rgba(52,211,153,0.40); }
+        }
+
+        /* Status dot — emerald */
+        .status-dot { background: #34d399 !important; }
+
+        /* Pro badge — bottom-right, terminal-style */
+        body::before {
+            content: "◈  Professional";
+            font-family: 'JetBrains Mono', monospace;
+            position: fixed;
+            bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+            right: 16px;
+            padding: 4px 12px;
+            border-radius: 3px;
+            background: rgba(6,10,14,0.85);
+            border: 1px solid rgba(52,211,153,0.20);
+            font-size: 0.50rem; font-weight: 500;
+            letter-spacing: 0.14em; text-transform: uppercase;
+            color: rgba(52,211,153,0.55);
+            z-index: 50;
+        }
         """
 
     # Standard — no overrides needed, base Frosted Obsidian theme applies.
