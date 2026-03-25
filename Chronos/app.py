@@ -66,27 +66,39 @@ except Exception:
 
 # ─── Cached data helpers (Enhancement 6) ─────────────────────────────────────
 
-@st.cache_data(ttl=30)
+@st.cache_data(ttl=60)
 def cached_get_all_images(user_id: str = ""):
     return get_all_images(user_id=user_id)
 
-@st.cache_data(ttl=120)
+@st.cache_data(ttl=10)
+def cached_get_preferences(user_id: str = ""):
+    return get_preferences(user_id=user_id)
+
+@st.cache_data(ttl=300)
+def cached_get_display_config():
+    return get_display_config()
+
+@st.cache_data(ttl=180)
+def cached_get_presets():
+    return get_presets()
+
+@st.cache_data(ttl=180)
 def cached_analytics_summary(user_id: str = ""):
     return get_image_interaction_summary(user_id=user_id)
 
-@st.cache_data(ttl=120)
+@st.cache_data(ttl=180)
 def cached_mood_distribution():
     return get_mood_distribution()
 
-@st.cache_data(ttl=120)
+@st.cache_data(ttl=180)
 def cached_hourly_usage():
     return get_hourly_usage()
 
-@st.cache_data(ttl=120)
+@st.cache_data(ttl=180)
 def cached_mood_over_time(days=30, user_id=""):
     return get_mood_over_time(days, user_id=user_id)
 
-@st.cache_data(ttl=120)
+@st.cache_data(ttl=180)
 def cached_top_images_by_display(user_id="", limit=10):
     return get_top_images_by_display(user_id=user_id, limit=limit)
 
@@ -775,10 +787,14 @@ def render_reasoning_overlay(result) -> None:
 def _invalidate_caches():
     """Clear all Streamlit data caches after mutations."""
     cached_get_all_images.clear()
+    cached_get_preferences.clear()
+    cached_get_display_config.clear()
+    cached_get_presets.clear()
     cached_analytics_summary.clear()
     cached_mood_distribution.clear()
     cached_hourly_usage.clear()
     cached_mood_over_time.clear()
+    cached_top_images_by_display.clear()
     st.session_state["_force_refresh"] = True
 
 
@@ -786,7 +802,7 @@ def _run_analysis(image_id: str, source_url: str):
     """Run Gemini analysis on an image and save results. Returns AnalysisResult."""
     from database.queries import update_image_analysis
     # Load AI analysis settings
-    config = get_display_config()
+    config = cached_get_display_config()
     r = analyze_image(
         source_url,
         depth=config.get("analysis_depth", "standard"),
@@ -815,7 +831,7 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
     Handles: mood selection, sensitivity, override toggle, image upload,
              AI analysis trigger, and recent history.
     """
-    prefs = get_preferences(user_id=user_id)
+    prefs = cached_get_preferences(user_id=user_id)
 
     with st.sidebar:
         # ── User header + logout ─────────────────────────────────────────
@@ -995,7 +1011,7 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                 st.toast(f"Failed to save sensitivity: {e}", icon="🚨")
 
         # ── Quick Presets (Enhancement 8) ─────────────────────────────────
-        presets = get_presets()
+        presets = cached_get_presets()
         if presets:
             preset_names = ["— Select Preset —"] + [p["name"] for p in presets]
             # Dynamic key resets selectbox to default after each application,
@@ -1588,7 +1604,7 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
 
         # ── AI Analysis Settings (Enhancement 10) ────────────────────────
         with st.expander("\u2699  AI Analysis Settings", expanded=False):
-            config = get_display_config()
+            config = cached_get_display_config()
 
             depth = st.radio(
                 "Analysis Depth",
