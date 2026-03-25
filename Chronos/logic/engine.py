@@ -132,13 +132,28 @@ def select_best_image(
         from database.queries import get_image_by_id
         img = get_image_by_id(prefs["override_image_id"])
         if img:
-            result = SelectionResult(
-                image=img, total_score=1.0, confidence_pct=100,
-                reasoning_text="Manual override active.",
-                was_override=True, context=context,
-            )
-            _write_log(result, context, user_id=user_id)
-            return result
+            # Kids safety: block restricted images even on manual override
+            if profile_type == "Kids":
+                blocked = _apply_kids_filter([img])
+                if not blocked:
+                    # Override image is restricted — fall through to AI selection
+                    pass
+                else:
+                    result = SelectionResult(
+                        image=img, total_score=1.0, confidence_pct=100,
+                        reasoning_text="Manual override active.",
+                        was_override=True, context=context,
+                    )
+                    _write_log(result, context, user_id=user_id)
+                    return result
+            else:
+                result = SelectionResult(
+                    image=img, total_score=1.0, confidence_pct=100,
+                    reasoning_text="Manual override active.",
+                    was_override=True, context=context,
+                )
+                _write_log(result, context, user_id=user_id)
+                return result
 
     # ── 2. Candidate pool (with scheduling filter) ────────────────────────
     from datetime import datetime

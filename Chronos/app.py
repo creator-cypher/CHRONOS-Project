@@ -902,6 +902,9 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                 # Manual mode: show Prev/Next for sequential navigation
                 prev_col, next_col, like_col = st.columns(3)
                 all_imgs = cached_get_all_images(user_id=user_id)
+                if profile_type == "Kids":
+                    _kids_blocked = {"melancholic", "mysterious"}
+                    all_imgs = [i for i in all_imgs if i.get("primary_mood") not in _kids_blocked]
 
                 with prev_col:
                     if st.button("\u276E  Prev", key=f"prev_{img['id']}", use_container_width=True, disabled=len(all_imgs) < 2):
@@ -1382,6 +1385,9 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
         # ── Image Gallery Preview (Enhancement 3) ────────────────────────
         with st.expander("\u29C9  Gallery View", expanded=False):
             gallery_imgs = cached_get_all_images(user_id=user_id)
+            if profile_type == "Kids":
+                _kids_blocked = {"melancholic", "mysterious"}
+                gallery_imgs = [i for i in gallery_imgs if i.get("primary_mood") not in _kids_blocked]
             if not gallery_imgs:
                 st.caption("No images yet.")
             else:
