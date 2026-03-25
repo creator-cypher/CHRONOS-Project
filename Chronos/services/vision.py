@@ -114,6 +114,11 @@ def analyze_image(
                 contents=[image_part, prompt],
                 config=gt.GenerateContentConfig(temperature=temperature, max_output_tokens=max_tokens),
             )
+            if not response.text:
+                return AnalysisResult(
+                    success=False,
+                    error_message="Image was blocked by Gemini safety filters — content not permitted.",
+                )
             return _parse(response.text.strip())
 
         except Exception as exc:
