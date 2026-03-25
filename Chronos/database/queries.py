@@ -351,6 +351,19 @@ def update_image_display_stats(image_id: str) -> None:
         session.close()
 
 
+def hard_delete_image(image_id: str) -> None:
+    """Hard-delete an image and its tags. Used when blocked content must be fully removed."""
+    session = _get_session()
+    try:
+        session.query(ImageTag).filter(ImageTag.image_id == image_id).delete()
+        session.query(Image).filter(Image.id == image_id).delete()
+        session.commit()
+    except Exception:
+        session.rollback()
+    finally:
+        session.close()
+
+
 def deactivate_image(image_id: str) -> None:
     """Soft-delete — preserves the record for historical log integrity."""
     session = _get_session()

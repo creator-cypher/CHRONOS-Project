@@ -156,6 +156,19 @@ def upload_image(source: bytes | str | Path, filename: str = "") -> dict:
         return _err(str(exc))
 
 
+def delete_image(public_id: str) -> bool:
+    """Delete an image from Cloudinary by public_id. Used when blocked content must be removed."""
+    if not public_id or not _ensure_configured():
+        return False
+    try:
+        import cloudinary.uploader
+        cloudinary.uploader.destroy(public_id, resource_type="image")
+        return True
+    except Exception as exc:
+        logger.error("Cloudinary delete failed: %s", exc)
+        return False
+
+
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------

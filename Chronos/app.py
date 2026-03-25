@@ -39,7 +39,7 @@ st.set_page_config(
 import pandas as pd
 from database.queries import (
     get_all_images, add_image, get_preferences, update_preferences,
-    get_recent_logs, deactivate_image, save_interaction,
+    get_recent_logs, deactivate_image, hard_delete_image, save_interaction,
     search_images, deactivate_images, get_image_interaction_summary,
     get_mood_distribution, get_hourly_usage, get_mood_over_time,
     get_display_config, update_display_config,
@@ -50,7 +50,7 @@ from database.queries import (
 from logic.context              import get_current_context
 from logic.engine               import select_best_image, WEIGHT_PROFILES
 from services.vision            import analyze_image
-from services.cloudinary_upload import upload_image as cloudinary_upload
+from services.cloudinary_upload import upload_image as cloudinary_upload, delete_image as cloudinary_delete
 from auth                       import init_auth_state, render_auth_page, logout, get_theme_overrides
 from database                   import init_database
 
@@ -1172,15 +1172,22 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                 with st.spinner("Analysing with Gemini…"):
                     r = _run_analysis(image_id, cloud["secure_url"])
 
-                if r.success:
+                if not r.success and "safety filters" in r.error_message:
+                    hard_delete_image(image_id)
+                    cloudinary_delete(cloud.get("public_id", ""))
+                    st.error("🚫 Blocked: content not permitted by safety filters. Image has not been saved.")
+                    _invalidate_caches()
+                elif r.success:
                     st.success(f"Analysed! Mood: {r.primary_mood} · Time: {r.optimal_time}")
+                    _invalidate_caches()
+                    time.sleep(1)
+                    st.rerun()
                 else:
                     st.error(f"Analysis failed: {r.error_message}")
                     st.info("Image saved — you can re-analyse later.")
-
-                _invalidate_caches()
-                time.sleep(1)
-                st.rerun()
+                    _invalidate_caches()
+                    time.sleep(1)
+                    st.rerun()
 
         # ── Add by URL ────────────────────────────────────────────────────
         with st.expander("\u2750  Add by URL", expanded=False):
@@ -1204,13 +1211,20 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                                 image_id = add_image(title=url_title or url_input[:40], image_url=url_input, user_id=user_id)
                                 with st.spinner("Analysing with Gemini…"):
                                     r = _run_analysis(image_id, url_input)
-                                if r.success:
+                                if not r.success and "safety filters" in r.error_message:
+                                    hard_delete_image(image_id)
+                                    st.error("🚫 Blocked: content not permitted by safety filters. Image has not been saved.")
+                                    _invalidate_caches()
+                                elif r.success:
                                     st.success(f"✅ Added! Mood: {r.primary_mood}")
+                                    _invalidate_caches()
+                                    time.sleep(1)
+                                    st.rerun()
                                 else:
                                     st.warning(f"⚠️ Saved without analysis: {r.error_message}")
-                                _invalidate_caches()
-                                time.sleep(1)
-                                st.rerun()
+                                    _invalidate_caches()
+                                    time.sleep(1)
+                                    st.rerun()
                     except urllib.error.URLError as e:
                         st.error(f"Cannot access URL: {str(e)[:100]}")
                     except urllib.error.HTTPError as e:
