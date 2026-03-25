@@ -37,6 +37,7 @@ Analyse the provided image and return a JSON object with EXACTLY this structure:
   "optimal_time": "<one of: dawn | morning | afternoon | evening | night | any>",
   "base_score": <float 0.0-1.0 representing aesthetic quality>,
   "dominant_colors": ["#hexcode1", "#hexcode2", "#hexcode3"],
+  "kids_safe": <true if the image is fully appropriate for children under 12; false if it contains ANY of: weapons, firearms, knives, violence, blood, gore, nudity, sexual content, drugs, alcohol, cigarettes, gambling, scary/horror content, racism, hate symbols, death, skulls, or any other adult/harmful theme>,
   "tags": [
     {"name": "<label>", "category": "<subject|mood|time|color|style|technical>", "confidence": <0.0-1.0>}
   ]
@@ -70,6 +71,7 @@ class AnalysisResult:
     base_score:      float      = 0.5
     dominant_colors: list       = field(default_factory=list)
     tags:            list[dict] = field(default_factory=list)
+    kids_safe:       bool       = True
     error_message:   str        = ""
 
 
@@ -189,5 +191,6 @@ def _parse(raw: str) -> AnalysisResult:
         optimal_time=str(data.get("optimal_time", "any")),
         base_score=float(data.get("base_score", 0.5)),
         dominant_colors=list(data.get("dominant_colors", [])),
+        kids_safe=bool(data.get("kids_safe", True)),
         tags=tags,
     )

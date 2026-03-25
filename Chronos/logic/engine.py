@@ -71,9 +71,25 @@ KIDS_SAFE_TAGS: set[str] = {
 }
 
 KIDS_BLOCKED_TAGS: set[str] = {
-    "dark", "melancholic", "complex", "moody", "gloomy", "noir",
-    "dramatic", "horror", "violent", "scary", "eerie", "sinister",
-    "disturbing", "unsettling", "provocative",
+    # Violence & weapons
+    "weapon", "gun", "guns", "firearm", "firearms", "pistol", "rifle", "shotgun",
+    "knife", "blade", "sword", "grenade", "bomb", "explosive", "ammunition",
+    "bullet", "shooting", "stabbing", "fight", "fighting", "war", "battle",
+    "military", "violent", "violence", "blood", "gore", "wound", "injury", "dead",
+    "death", "skull", "skeleton", "corpse", "killing",
+    # Adult & sexual content
+    "nude", "nudity", "naked", "sexual", "explicit", "adult", "nsfw",
+    "provocative", "intimate", "erotic", "sensual",
+    # Drugs, alcohol & substances
+    "drug", "drugs", "alcohol", "beer", "wine", "liquor", "cigarette",
+    "smoking", "cannabis", "marijuana", "cocaine", "needle", "syringe",
+    # Horror & dark themes
+    "horror", "scary", "eerie", "sinister", "disturbing", "unsettling",
+    "dark", "gloomy", "noir", "moody", "melancholic", "complex",
+    "dramatic", "funeral", "grave", "cemetery",
+    # Hate & discrimination
+    "racist", "racism", "hate", "derogatory", "offensive", "extremist",
+    "gang", "gambling", "casino",
 }
 
 KIDS_BLOCKED_MOODS: set[str] = {"melancholic", "mysterious"}
@@ -245,7 +261,12 @@ def _apply_kids_filter(candidates: list[dict]) -> list[dict]:
         tags = get_tags_for_image(img["id"])
         tag_names = {t["name"].lower() for t in tags}
 
-        if tag_names & KIDS_BLOCKED_TAGS:
+        # Substring match — catches "firearm", "pistol", "gunshot" etc.
+        if any(
+            blocked in tag or tag in blocked
+            for tag in tag_names
+            for blocked in KIDS_BLOCKED_TAGS
+        ):
             continue
 
         safe.append(img)

@@ -1180,6 +1180,11 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                     cloudinary_delete(cloud.get("public_id", ""))
                     st.error("🚫 Blocked: content not permitted by safety filters. Image has not been saved.")
                     _invalidate_caches()
+                elif r.success and profile_type == "Kids" and not r.kids_safe:
+                    hard_delete_image(image_id)
+                    cloudinary_delete(cloud.get("public_id", ""))
+                    st.error("🚫 Blocked: this image is not suitable for Kids mode and has not been saved.")
+                    _invalidate_caches()
                 elif r.success:
                     st.success(f"Analysed! Mood: {r.primary_mood} · Time: {r.optimal_time}")
                     _invalidate_caches()
@@ -1217,6 +1222,10 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                                 if not r.success and "safety filters" in r.error_message:
                                     hard_delete_image(image_id)
                                     st.error("🚫 Blocked: content not permitted by safety filters. Image has not been saved.")
+                                    _invalidate_caches()
+                                elif r.success and profile_type == "Kids" and not r.kids_safe:
+                                    hard_delete_image(image_id)
+                                    st.error("🚫 Blocked: this image is not suitable for Kids mode and has not been saved.")
                                     _invalidate_caches()
                                 elif r.success:
                                     st.success(f"✅ Added! Mood: {r.primary_mood}")
