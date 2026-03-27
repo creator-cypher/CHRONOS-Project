@@ -825,13 +825,12 @@ def _run_analysis(image_id: str, source_url: str):
         return r
 
 
-@st.fragment
 def render_sidebar(context: dict, result, user_id: str = "", profile_type: str = "Standard") -> None:
     """
     Renders the Control Dashboard in the Streamlit sidebar.
-    Decorated with @st.fragment so sidebar interactions rerun only this
-    function, leaving the main display untouched unless a full rerun is
-    explicitly triggered (image changes, override, Like/Skip, Refresh).
+    Called inside a with st.sidebar: block from main().
+    Full reruns are kept only for image-changing actions (Like, Skip,
+    Override, Refresh, Prev/Next, Gallery Display, Preset Apply).
     """
     prefs = cached_get_preferences(user_id=user_id)
 
