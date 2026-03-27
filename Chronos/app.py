@@ -1641,6 +1641,20 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
 
         st.divider()
 
+        # ── Evaluation: Static Baseline Mode ──────────────────────────────
+        with st.expander("⚗  Evaluation Mode", expanded=False):
+            st.caption("For academic comparison only. Switches AI scoring off — images cycle by round-robin regardless of context.")
+            baseline_on = bool(prefs.get("baseline_mode", 0))
+            new_baseline = st.toggle("Static Baseline (no AI)", value=baseline_on, key="baseline_toggle")
+            if new_baseline != baseline_on:
+                update_preferences(user_id, baseline_mode=1 if new_baseline else 0)
+                mode_label = "Static baseline ON — round-robin active" if new_baseline else "Adaptive AI restored"
+                st.toast(mode_label)
+                _invalidate_caches()
+                st.rerun()
+
+        st.divider()
+
         # ── Recent History ─────────────────────────────────────────────────
         with st.expander("\u2630  Recent History", expanded=False):
             logs = get_recent_logs(limit=8, user_id=user_id)
@@ -1666,16 +1680,20 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                 buf = io.StringIO()
                 writer = csv.writer(buf)
                 writer.writerow([
-                    "timestamp", "image", "time_period",
-                    "score", "t_time", "t_mood", "t_pref",
+                    "timestamp", "selection_mode", "image", "image_mood",
+                    "time_period", "detected_mood", "score",
+                    "t_time", "t_mood", "t_pref",
                     "t_quality", "t_recency", "t_interaction", "override",
                 ])
                 for lg in all_logs:
                     bd = lg.get("score_breakdown") or {}
                     writer.writerow([
                         str(lg.get("timestamp") or "")[:19],
+                        bd.get("mode", "adaptive"),
                         lg.get("image_title") or "Unknown",
+                        lg.get("image_mood") or "",
                         lg.get("time_period") or "",
+                        lg.get("detected_mood") or "",
                         f"{lg.get('selection_score', 0):.3f}",
                         f"{bd.get('time', 0):.3f}",
                         f"{bd.get('mood', 0):.3f}",

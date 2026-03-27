@@ -171,6 +171,28 @@ def select_best_image(
                 _write_log(result, context, user_id=user_id)
                 return result
 
+    # ── 1b. Static Baseline Mode (evaluation / academic comparison) ───────
+    if prefs.get("baseline_mode"):
+        baseline_pool = get_analyzed_images(user_id=user_id)
+        if profile_type == "Kids":
+            baseline_pool = _apply_kids_filter(baseline_pool)
+        if baseline_pool:
+            # Pure round-robin: pick the image with the lowest display count
+            baseline_pool.sort(key=lambda i: i.get("display_count", 0))
+            chosen = baseline_pool[0]
+            result = SelectionResult(
+                image=chosen,
+                total_score=0.0,
+                confidence_pct=0,
+                reasoning_text="Static baseline mode — round-robin selection (no AI scoring).",
+                was_override=False,
+                context=context,
+                breakdown={"mode": "baseline"},
+            )
+            _write_log(result, context, user_id=user_id)
+            update_image_display_stats(chosen["id"])
+            return result
+
     # ── 2. Candidate pool (with scheduling filter) ────────────────────────
     from datetime import datetime
     now = datetime.now()
@@ -356,7 +378,7 @@ def _score(
         image=img,
         total_score=round(total, 4),
         confidence_pct=confidence_pct,
-        breakdown={"time": round(t_score, 3), "mood": round(m_score, 3),
+        breakdown={"mode": "adaptive", "time": round(t_score, 3), "mood": round(m_score, 3),
                    "preference": round(p_score, 3), "quality": round(q_score, 3),
                    "recency": round(r_penalty, 3), "interaction": round(i_delta, 3)},
         matched_tags=matched,

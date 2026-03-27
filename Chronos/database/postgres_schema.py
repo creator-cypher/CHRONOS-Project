@@ -134,6 +134,7 @@ class UserPreference(Base):
     override_active = Column(Boolean, nullable=False, default=False)
     override_image_id = Column(String(36), ForeignKey("images.id", ondelete="SET NULL"), nullable=True)
     recency_weight = Column(Float, nullable=False, default=0.2)
+    baseline_mode = Column(Boolean, nullable=False, default=False)
     user_id = Column(String(36), nullable=False, default="")
     updated_at = Column(DateTime(timezone=True), nullable=False, default=datetime.now(timezone.utc))
 
@@ -273,6 +274,16 @@ def init_database():
             if not db.query(Preset).filter_by(name=name).first():
                 db.add(Preset(name=name, mood=mood, sensitivity=sens, is_default=True))
         db.commit()
+
+        # Migration: add baseline_mode column if it doesn't exist yet
+        try:
+            if _using_sqlite:
+                db.execute(text("ALTER TABLE user_preferences ADD COLUMN baseline_mode BOOLEAN NOT NULL DEFAULT 0"))
+            else:
+                db.execute(text("ALTER TABLE user_preferences ADD COLUMN IF NOT EXISTS baseline_mode BOOLEAN NOT NULL DEFAULT FALSE"))
+            db.commit()
+        except Exception:
+            db.rollback()  # Column already exists — safe to ignore
 
         # PostgreSQL: advance sequences past the explicitly seeded id=1 rows so
         # the next autoincrement value doesn't collide with the singleton rows.
