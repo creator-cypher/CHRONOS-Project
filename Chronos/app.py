@@ -1644,14 +1644,16 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
         # ── Evaluation: Static Baseline Mode ──────────────────────────────
         with st.expander("⚗  Evaluation Mode", expanded=False):
             st.caption("For academic comparison only. Switches AI scoring off — images cycle by round-robin regardless of context.")
+            # Initialise session state from DB on first load only
+            if "baseline_toggle" not in st.session_state:
+                st.session_state["baseline_toggle"] = bool(prefs.get("baseline_mode", 0))
+            new_baseline = st.toggle("Static Baseline (no AI)", key="baseline_toggle")
             baseline_on = bool(prefs.get("baseline_mode", 0))
-            new_baseline = st.toggle("Static Baseline (no AI)", value=baseline_on, key="baseline_toggle")
             if new_baseline != baseline_on:
                 update_preferences(user_id, baseline_mode=1 if new_baseline else 0)
                 mode_label = "Static baseline ON — round-robin active" if new_baseline else "Adaptive AI restored"
                 st.toast(mode_label)
-                _invalidate_caches()
-                st.rerun()
+                cached_get_preferences.clear()
 
         st.divider()
 
