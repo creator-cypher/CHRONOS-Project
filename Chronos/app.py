@@ -835,865 +835,864 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
     """
     prefs = cached_get_preferences(user_id=user_id)
 
-    with st.sidebar:
-        # ── User header + logout ─────────────────────────────────────────
-        user_display = st.session_state.get("user_name", "") or st.session_state.get("username", "")
-        _badge_cfg = {
-            "Kids":         ("\u2605 Kids", "rgba(56,189,248,0.12)",  "rgba(56,189,248,0.25)",  "#7dd3fc"),
-            "Professional": ("\u25C8 Pro",  "rgba(52,211,153,0.10)",  "rgba(52,211,153,0.22)",  "#6ee7b7"),
-        }
-        _badge_html = ""
-        if profile_type in _badge_cfg:
-            _label, _bg, _border, _color = _badge_cfg[profile_type]
-            _badge_html = (
-                f"<span style='margin-left:6px;font-size:0.5rem;padding:2px 8px;border-radius:99px;"
-                f"background:{_bg};border:1px solid {_border};"
-                f"color:{_color};letter-spacing:0.1em;text-transform:uppercase;font-weight:600'>"
-                f"{_label}</span>"
-            )
+    # ── User header + logout ─────────────────────────────────────────
+    user_display = st.session_state.get("user_name", "") or st.session_state.get("username", "")
+    _badge_cfg = {
+        "Kids":         ("\u2605 Kids", "rgba(56,189,248,0.12)",  "rgba(56,189,248,0.25)",  "#7dd3fc"),
+        "Professional": ("\u25C8 Pro",  "rgba(52,211,153,0.10)",  "rgba(52,211,153,0.22)",  "#6ee7b7"),
+    }
+    _badge_html = ""
+    if profile_type in _badge_cfg:
+        _label, _bg, _border, _color = _badge_cfg[profile_type]
+        _badge_html = (
+            f"<span style='margin-left:6px;font-size:0.5rem;padding:2px 8px;border-radius:99px;"
+            f"background:{_bg};border:1px solid {_border};"
+            f"color:{_color};letter-spacing:0.1em;text-transform:uppercase;font-weight:600'>"
+            f"{_label}</span>"
+        )
+    st.markdown(f"""
+    <div style="display:flex;justify-content:space-between;align-items:center;
+                padding:14px 0 6px">
+      <div>
+        <div style="font-size:0.62rem;font-weight:400;margin:0;color:rgba(255,255,255,0.65);
+                    display:flex;align-items:center;flex-wrap:wrap;gap:4px">
+          {user_display}{_badge_html}
+        </div>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+    if st.button("Sign Out", key="logout_btn"):
+        logout()
+
+    st.divider()
+
+    # ── Header ───────────────────────────────────────────────────────
+    st.markdown(f"""
+    <div style="padding:4px 0 16px">
+      <p style="font-size:0.5rem;letter-spacing:0.24em;text-transform:uppercase;
+                color:rgba(255,255,255,0.22);margin:0 0 12px;font-weight:700">
+        Chronos Control
+      </p>
+      <div style="display:flex;align-items:flex-end;gap:10px;margin-bottom:6px">
+        <p style="font-size:2.2rem;font-weight:200;letter-spacing:-0.03em;
+                  margin:0;line-height:1;color:#ffffff">
+          {context.get('hour',0)}:{context.get('minute',0):02d}
+        </p>
+        <span style="
+          display:inline-block;
+          width:7px;height:7px;border-radius:50%;
+          background:#a78bfa;margin-bottom:8px;flex-shrink:0;
+          animation:systemPulse 2.6s ease-in-out infinite;
+        " title="AI active"></span>
+      </div>
+      <p style="font-size:0.52rem;text-transform:uppercase;letter-spacing:0.18em;
+                color:rgba(255,255,255,0.22);margin:0;font-weight:600">
+        {context.get('day_of_week','')} &nbsp;·&nbsp; {context.get('time_period','').capitalize()}
+      </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.divider()
+
+    # ── Now Displaying ────────────────────────────────────────────────
+    if result:
+        img = result.image
         st.markdown(f"""
-        <div style="display:flex;justify-content:space-between;align-items:center;
-                    padding:14px 0 6px">
-          <div>
-            <div style="font-size:0.62rem;font-weight:400;margin:0;color:rgba(255,255,255,0.65);
-                        display:flex;align-items:center;flex-wrap:wrap;gap:4px">
-              {user_display}{_badge_html}
-            </div>
-          </div>
+        <div style="margin-bottom:16px">
+          <p style="font-size:0.55rem;letter-spacing:0.15em;text-transform:uppercase;
+                    color:rgba(255,255,255,0.3);margin:0 0 4px">Now Displaying</p>
+          <p style="font-size:0.85rem;font-weight:300;margin:0;
+                    white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+            {img.get('title') or 'Untitled'}
+          </p>
+          <p style="font-size:0.6rem;color:rgba(255,255,255,0.3);margin:2px 0 0;
+                    text-transform:uppercase;letter-spacing:0.1em">
+            {img.get('primary_mood','—')} · {img.get('optimal_time','—')}
+          </p>
         </div>
         """, unsafe_allow_html=True)
-        if st.button("Sign Out", key="logout_btn"):
-            logout()
 
-        st.divider()
+        # ── Manual Override Navigation or Standard Feedback ──────────────
+        override_active = bool(prefs.get("override_active", 0))
 
-        # ── Header ───────────────────────────────────────────────────────
-        st.markdown(f"""
-        <div style="padding:4px 0 16px">
-          <p style="font-size:0.5rem;letter-spacing:0.24em;text-transform:uppercase;
-                    color:rgba(255,255,255,0.22);margin:0 0 12px;font-weight:700">
-            Chronos Control
-          </p>
-          <div style="display:flex;align-items:flex-end;gap:10px;margin-bottom:6px">
-            <p style="font-size:2.2rem;font-weight:200;letter-spacing:-0.03em;
-                      margin:0;line-height:1;color:#ffffff">
-              {context.get('hour',0)}:{context.get('minute',0):02d}
-            </p>
-            <span style="
-              display:inline-block;
-              width:7px;height:7px;border-radius:50%;
-              background:#a78bfa;margin-bottom:8px;flex-shrink:0;
-              animation:systemPulse 2.6s ease-in-out infinite;
-            " title="AI active"></span>
-          </div>
-          <p style="font-size:0.52rem;text-transform:uppercase;letter-spacing:0.18em;
-                    color:rgba(255,255,255,0.22);margin:0;font-weight:600">
-            {context.get('day_of_week','')} &nbsp;·&nbsp; {context.get('time_period','').capitalize()}
-          </p>
-        </div>
-        """, unsafe_allow_html=True)
-
-        st.divider()
-
-        # ── Now Displaying ────────────────────────────────────────────────
-        if result:
-            img = result.image
-            st.markdown(f"""
-            <div style="margin-bottom:16px">
-              <p style="font-size:0.55rem;letter-spacing:0.15em;text-transform:uppercase;
-                        color:rgba(255,255,255,0.3);margin:0 0 4px">Now Displaying</p>
-              <p style="font-size:0.85rem;font-weight:300;margin:0;
-                        white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
-                {img.get('title') or 'Untitled'}
-              </p>
-              <p style="font-size:0.6rem;color:rgba(255,255,255,0.3);margin:2px 0 0;
-                        text-transform:uppercase;letter-spacing:0.1em">
-                {img.get('primary_mood','—')} · {img.get('optimal_time','—')}
-              </p>
-            </div>
-            """, unsafe_allow_html=True)
-
-            # ── Manual Override Navigation or Standard Feedback ──────────────
-            override_active = bool(prefs.get("override_active", 0))
-
-            if override_active:
-                # Manual mode: show Prev/Next for sequential navigation
-                prev_col, next_col, like_col = st.columns(3)
-                all_imgs = cached_get_all_images(user_id=user_id)
-                if profile_type == "Kids":
-                    _kids_blocked = {"melancholic", "mysterious"}
-                    all_imgs = [i for i in all_imgs if i.get("primary_mood") not in _kids_blocked]
-
-                with prev_col:
-                    if st.button("\u276E  Prev", key=f"prev_{img['id']}", use_container_width=True, disabled=len(all_imgs) < 2):
-                        if all_imgs and len(all_imgs) > 1:
-                            current_idx = next((i for i, im in enumerate(all_imgs) if im["id"] == img["id"]), 0)
-                            prev_idx = (current_idx - 1) % len(all_imgs)
-                            update_preferences(user_id, override_image_id=all_imgs[prev_idx]["id"])
-                            st.toast(f"← {all_imgs[prev_idx].get('title', 'Image')}")
-                            st.session_state["_force_refresh"] = True
-                            st.rerun()
-
-                with next_col:
-                    if st.button("Next  \u276F", key=f"next_{img['id']}", use_container_width=True, disabled=len(all_imgs) < 2):
-                        if all_imgs and len(all_imgs) > 1:
-                            current_idx = next((i for i, im in enumerate(all_imgs) if im["id"] == img["id"]), 0)
-                            next_idx = (current_idx + 1) % len(all_imgs)
-                            update_preferences(user_id, override_image_id=all_imgs[next_idx]["id"])
-                            st.toast(f"{all_imgs[next_idx].get('title', 'Image')} →")
-                            st.session_state["_force_refresh"] = True
-                            st.rerun()
-
-                with like_col:
-                    if st.button("\u2764  Like", key=f"like_{img['id']}", use_container_width=True):
-                        save_interaction(img["id"], "like")
-                        st.toast("Liked — this image will score higher.")
-                        st.session_state["_force_refresh"] = True
-                        st.rerun()
-            else:
-                # Auto mode: standard Like/Skip feedback
-                like_col, skip_col = st.columns(2)
-                with like_col:
-                    if st.button("\u2764  Like", key=f"like_{img['id']}", use_container_width=True):
-                        save_interaction(img["id"], "like")
-                        st.toast("Liked — this image will score higher.")
-                        st.session_state["_force_refresh"] = True
-                        st.rerun()
-                with skip_col:
-                    if st.button("\u2716  Skip", key=f"skip_{img['id']}", use_container_width=True):
-                        save_interaction(img["id"], "skip")
-                        st.toast("Skipped — this image will show less often.")
-                        st.session_state["_force_refresh"] = True
-                        st.rerun()
-
-        st.divider()
-
-        # ── Mood Preference ───────────────────────────────────────────────
-        from logic.engine import KIDS_BLOCKED_MOODS
-        _all_moods = ["calm", "energetic", "joyful", "melancholic", "mysterious", "neutral"]
-        MOODS = [m for m in _all_moods if profile_type != "Kids" or m not in KIDS_BLOCKED_MOODS]
-        current_mood = prefs.get("preferred_mood", "calm")
-        # If current saved mood is blocked for Kids, silently fall back to calm
-        if current_mood not in MOODS:
-            current_mood = "calm"
-        new_mood = st.selectbox(
-            "Preferred Mood",
-            MOODS,
-            index=MOODS.index(current_mood),
-            key="mood_select",
-        )
-        if new_mood != current_mood:
-            try:
-                update_preferences(user_id, preferred_mood=new_mood)
-                prefs["preferred_mood"] = new_mood
-                st.toast(f"Mood set to {new_mood.capitalize()}")
-            except Exception as e:
-                st.toast(f"Failed to save mood: {e}", icon="🚨")
-
-        # ── AI Sensitivity ────────────────────────────────────────────────
-        SENS        = ["low", "medium", "high"]
-        SENS_LABELS = ["Manual", "Balanced", "Full AI"]
-        current_sens = prefs.get("sensitivity", "medium")
-        sens_idx     = SENS.index(current_sens) if current_sens in SENS else 1
-        new_sens_idx = st.radio(
-            "AI Sensitivity",
-            SENS_LABELS,
-            index=sens_idx,
-            key="sens_radio",
-            horizontal=True,
-        )
-        new_sens = SENS[SENS_LABELS.index(new_sens_idx)]
-        if new_sens != current_sens:
-            try:
-                update_preferences(user_id, sensitivity=new_sens)
-                prefs["sensitivity"] = new_sens
-                _sens_label = {"low": "Manual", "medium": "Balanced", "high": "Full AI"}.get(new_sens, new_sens)
-                st.toast(f"AI Sensitivity → {_sens_label}")
-            except Exception as e:
-                st.toast(f"Failed to save sensitivity: {e}", icon="🚨")
-
-        # ── Quick Presets (Enhancement 8) ─────────────────────────────────
-        presets = cached_get_presets()
-        if presets:
-            preset_names = ["— Select Preset —"] + [p["name"] for p in presets]
-            # Dynamic key resets selectbox to default after each application,
-            # preventing re-application on the very next rerun.
-            _pk = st.session_state.get("_preset_counter", 0)
-            selected_preset = st.selectbox(
-                "Quick Presets", preset_names,
-                index=0, key=f"preset_select_{_pk}", label_visibility="collapsed",
-            )
-            if selected_preset != "— Select Preset —":
-                preset = next(p for p in presets if p["name"] == selected_preset)
-                apply_preset(preset["id"], user_id=user_id)
-                st.toast(f"Applied: {selected_preset}")
-                st.session_state["_preset_counter"] = _pk + 1
-                st.session_state["_force_refresh"] = True
-                st.rerun()
-
-        with st.popover("Save Current as Preset", use_container_width=True):
-            preset_name = st.text_input("Preset name", key="new_preset_name")
-            if preset_name and st.button("Save Preset", key="save_preset_btn"):
-                save_preset(preset_name, new_mood, new_sens)
-                cached_get_presets.clear()
-                st.toast(f"Preset '{preset_name}' saved!")
-            # Delete custom presets
-            custom = [p for p in presets if not p.get("is_default")]
-            if custom:
-                st.caption("Delete a custom preset:")
-                for p in custom:
-                    if st.button(f"\u2715 {p['name']}", key=f"delpreset_{p['id']}"):
-                        delete_preset(p["id"])
-                        cached_get_presets.clear()
-                        st.toast(f"Deleted preset '{p['name']}'")
-
-        # ── Pro: Mood Schedule ────────────────────────────────────────────
-        if profile_type == "Professional":
-            with st.expander("\u29BE  Mood Schedule", expanded=False):
-                st.caption("Pin a mood to each time period. Takes priority over your global preference.")
-                _all_moods_pro = ["calm", "energetic", "joyful", "melancholic", "mysterious", "neutral"]
-                _periods_cfg = ["dawn", "morning", "afternoon", "evening", "night"]
-                _time_map = dict(prefs.get("time_mood_map") or {})
-                _new_map: dict = {}
-                for _period in _periods_cfg:
-                    _c1, _c2 = st.columns([1.1, 2])
-                    with _c1:
-                        st.markdown(
-                            f"<div style='font-size:0.62rem;padding-top:8px;color:rgba(255,255,255,0.7)'>"
-                            f"{bi(PERIOD_ICONS_BI[_period], '0.85em')} {_period.capitalize()}</div>",
-                            unsafe_allow_html=True,
-                        )
-                    with _c2:
-                        _opts = ["— Auto —"] + _all_moods_pro
-                        _cur  = _time_map.get(_period, "— Auto —")
-                        if _cur not in _opts:
-                            _cur = "— Auto —"
-                        _sel = st.selectbox(
-                            "", _opts, index=_opts.index(_cur),
-                            key=f"tmm_{_period}", label_visibility="collapsed",
-                        )
-                        if _sel != "— Auto —":
-                            _new_map[_period] = _sel
-                # Preserve stored custom weights key
-                if "__weights" in _time_map:
-                    _new_map["__weights"] = _time_map["__weights"]
-                if st.button("Save Schedule", use_container_width=True, key="save_mood_schedule"):
-                    try:
-                        update_preferences(user_id, time_mood_map=_new_map)
-                        cached_get_preferences.clear()
-                        st.toast("Mood schedule saved")
-                    except Exception as e:
-                        st.toast(f"Failed to save schedule: {e}", icon="\U0001F6A8")
-
-        # ── Pro: Scoring Weights ──────────────────────────────────────────
-        if profile_type == "Professional":
-            with st.expander("\u29C6  Scoring Weights", expanded=False):
-                st.caption("Fine-tune how each factor is weighted when the AI picks an image.")
-                _time_map_w   = dict(prefs.get("time_mood_map") or {})
-                _saved_w      = _time_map_w.get("__weights") or {}
-                _default_w    = WEIGHT_PROFILES.get(prefs.get("sensitivity", "medium"), WEIGHT_PROFILES["medium"])
-                _w_time = st.slider("Time Match",      0.0, 1.0, float(_saved_w.get("time",       _default_w["time"])),       0.05, key="pro_w_time")
-                _w_mood = st.slider("Mood Match",      0.0, 1.0, float(_saved_w.get("mood",       _default_w["mood"])),       0.05, key="pro_w_mood")
-                _w_pref = st.slider("Preference",      0.0, 1.0, float(_saved_w.get("preference", _default_w["preference"])), 0.05, key="pro_w_pref")
-                _w_qual = st.slider("Image Quality",   0.0, 1.0, float(_saved_w.get("quality",    _default_w["quality"])),    0.05, key="pro_w_qual")
-                _w_rec  = st.slider("Recency Penalty", 0.0, 1.0, float(prefs.get("recency_weight", 0.2)),                     0.05, key="pro_w_rec")
-                _total  = _w_time + _w_mood + _w_pref + _w_qual
-                _total_color = "#34d399" if 0.95 <= _total <= 1.05 else "#fbbf24"
-                st.markdown(
-                    f"<div style='font-size:0.58rem;color:{_total_color};margin-top:4px'>"
-                    f"Total weight: {_total:.2f} &nbsp;·&nbsp; ideally 1.0</div>",
-                    unsafe_allow_html=True,
-                )
-                _wc1, _wc2 = st.columns(2)
-                with _wc1:
-                    if st.button("Save", use_container_width=True, key="save_pro_weights"):
-                        try:
-                            _map_upd = {k: v for k, v in _time_map_w.items() if not k.startswith("__")}
-                            _map_upd["__weights"] = {
-                                "time": _w_time, "mood": _w_mood,
-                                "preference": _w_pref, "quality": _w_qual,
-                                "recency": _w_rec,
-                            }
-                            update_preferences(user_id, time_mood_map=_map_upd, recency_weight=_w_rec)
-                            cached_get_preferences.clear()
-                            st.toast("Scoring weights saved")
-                        except Exception as e:
-                            st.toast(f"Failed: {e}", icon="\U0001F6A8")
-                with _wc2:
-                    if st.button("Reset", use_container_width=True, key="reset_pro_weights"):
-                        try:
-                            _map_rst = {k: v for k, v in _time_map_w.items() if not k.startswith("__")}
-                            update_preferences(user_id, time_mood_map=_map_rst, recency_weight=0.2)
-                            cached_get_preferences.clear()
-                            st.toast("Weights reset to defaults")
-                        except Exception as e:
-                            st.toast(f"Failed: {e}", icon="\U0001F6A8")
-
-        st.divider()
-
-        # ── Manual Override ───────────────────────────────────────────────
-        override_on = st.toggle(
-            "Manual Override",
-            value=bool(prefs.get("override_active", 0)),
-            help="When ON, the AI is bypassed entirely. Use Prev/Next to navigate.",
-        )
-        if override_on != bool(prefs.get("override_active", 0)):
-            try:
-                if override_on:
-                    all_imgs = cached_get_all_images(user_id=user_id)
-                    if not all_imgs:
-                        st.warning("No images in library. Upload one first to use Manual Override.")
-                        return
-                    update_preferences(user_id, override_active=1, override_image_id=all_imgs[0]["id"])
-                    st.toast("Manual Override ON — AI bypassed")
-                else:
-                    update_preferences(user_id, override_active=0, override_image_id=None)
-                    st.toast("Manual Override OFF — AI resumed")
-                st.session_state["_force_refresh"] = True
-                st.rerun()
-            except Exception as e:
-                st.toast(f"Failed to toggle override: {e}", icon="🚨")
-
-        # ── Refresh ────────────────────────────────────────────────────────
-        if st.button("\u27F3  Refresh Now", use_container_width=True):
-            _invalidate_caches()
-            st.rerun()
-
-        st.divider()
-
-        # ── Upload Image ──────────────────────────────────────────────────
-        with st.expander("\u2912  Upload Image", expanded=False):
-            uploaded = st.file_uploader(
-                "Choose an image",
-                type=["jpg", "jpeg", "png", "webp"],
-                label_visibility="collapsed",
-            )
-            title = st.text_input("Title (optional)", placeholder="e.g. Misty Forest Dawn")
-
-            if uploaded and st.button("Save & Analyse", use_container_width=True):
-                with st.spinner("Uploading to Cloudinary…"):
-                    cloud = cloudinary_upload(
-                        uploaded.getvalue(),
-                        filename=uploaded.name,
-                    )
-
-                if not cloud["success"]:
-                    st.error(f"Upload failed: {cloud['error']}")
-                    st.stop()
-
-                image_id = add_image(
-                    title=title or uploaded.name,
-                    image_url=cloud["secure_url"],
-                    user_id=user_id,
-                )
-
-                with st.spinner("Analysing with Gemini…"):
-                    r = _run_analysis(image_id, cloud["secure_url"])
-
-                if not r.success and "safety filters" in r.error_message:
-                    hard_delete_image(image_id)
-                    cloudinary_delete(cloud.get("public_id", ""))
-                    st.error("🚫 Blocked: content not permitted by safety filters. Image has not been saved.")
-                    _invalidate_caches()
-                elif r.success and profile_type == "Kids" and not r.kids_safe:
-                    hard_delete_image(image_id)
-                    cloudinary_delete(cloud.get("public_id", ""))
-                    st.error("🚫 Blocked: this image is not suitable for Kids mode and has not been saved.")
-                    _invalidate_caches()
-                elif r.success:
-                    st.success(f"Analysed! Mood: {r.primary_mood} · Time: {r.optimal_time}")
-                    _invalidate_caches()
-                else:
-                    st.error(f"Analysis failed: {r.error_message}")
-                    st.info("Image saved — you can re-analyse later.")
-                    _invalidate_caches()
-
-        # ── Add by URL ────────────────────────────────────────────────────
-        with st.expander("\u2750  Add by URL", expanded=False):
-            url_input  = st.text_input("Image URL", placeholder="https://…")
-            url_title  = st.text_input("Title", placeholder="e.g. Aurora Borealis", key="url_title")
-            if url_input and st.button("Add & Analyse URL", use_container_width=True):
-                # Validate URL
-                if not url_input.startswith(("http://", "https://")):
-                    st.error("URL must start with http:// or https://")
-                else:
-                    try:
-                        # Quick connectivity check (HEAD request with timeout)
-                        import urllib.request
-                        req = urllib.request.Request(url_input, method="HEAD", headers={"User-Agent": "Mozilla/5.0"})
-                        with urllib.request.urlopen(req, timeout=5) as resp:
-                            content_type = resp.headers.get("Content-Type", "")
-                            if not content_type.startswith("image/"):
-                                st.error("URL does not point to an image. Check the URL and try again.")
-                            else:
-                                # URL is valid, proceed
-                                image_id = add_image(title=url_title or url_input[:40], image_url=url_input, user_id=user_id)
-                                with st.spinner("Analysing with Gemini…"):
-                                    r = _run_analysis(image_id, url_input)
-                                if not r.success and "safety filters" in r.error_message:
-                                    hard_delete_image(image_id)
-                                    st.error("🚫 Blocked: content not permitted by safety filters. Image has not been saved.")
-                                    _invalidate_caches()
-                                elif r.success and profile_type == "Kids" and not r.kids_safe:
-                                    hard_delete_image(image_id)
-                                    st.error("🚫 Blocked: this image is not suitable for Kids mode and has not been saved.")
-                                    _invalidate_caches()
-                                elif r.success:
-                                    st.success(f"✅ Added! Mood: {r.primary_mood}")
-                                    _invalidate_caches()
-                                else:
-                                    st.warning(f"⚠️ Saved without analysis: {r.error_message}")
-                                    _invalidate_caches()
-                    except urllib.error.URLError as e:
-                        st.error(f"Cannot access URL: {str(e)[:100]}")
-                    except urllib.error.HTTPError as e:
-                        st.error(f"HTTP error {e.code}: {e.reason}")
-                    except Exception as e:
-                        st.error(f"Error: {str(e)[:100]}")
-
-        st.divider()
-
-        # ── Image Library with Search & Filtering (Enhancements 1 & 2) ───
-        with st.expander("\u25A6  Image Library", expanded=False):
-            # Search & Filter controls
-            lib_search = st.text_input(
-                "Search", placeholder="Search title or tags…",
-                key="lib_search", label_visibility="collapsed",
-            )
-            filt_col1, filt_col2 = st.columns(2)
-            with filt_col1:
-                mood_filter = st.selectbox(
-                    "Mood", ["All", "calm", "energetic", "joyful", "melancholic", "mysterious", "neutral"],
-                    key="lib_mood_filter", label_visibility="collapsed",
-                )
-            with filt_col2:
-                time_filter = st.selectbox(
-                    "Time", ["All", "dawn", "morning", "afternoon", "evening", "night", "any"],
-                    key="lib_time_filter", label_visibility="collapsed",
-                )
-
-            # Fetch images (filtered or all)
-            has_filter = lib_search or mood_filter != "All" or time_filter != "All"
-            if has_filter:
-                images = search_images(
-                    text=lib_search,
-                    mood=mood_filter if mood_filter != "All" else "",
-                    time_period=time_filter if time_filter != "All" else "",
-                    user_id=user_id,
-                )
-            else:
-                images = cached_get_all_images(user_id=user_id)
-
-            st.caption(f"{len(images)} image{'s' if len(images) != 1 else ''}")
-
-            if not images:
-                st.caption("No images match — upload one above.")
-            else:
-                # Bulk selection controls
-                if "selected_ids" not in st.session_state:
-                    st.session_state.selected_ids = set()
-
-                sa_col, da_col = st.columns(2)
-                with sa_col:
-                    if st.button("Select All", key="sel_all", use_container_width=True):
-                        st.session_state.selected_ids = {img["id"] for img in images}
-                with da_col:
-                    if st.button("Deselect All", key="desel_all", use_container_width=True):
-                        st.session_state.selected_ids = set()
-
-                # Image list with checkboxes
-                for img in images:
-                    analyzed = bool(img.get("is_analyzed"))
-                    cb_col, info_col, act_col = st.columns([0.5, 3, 1.5])
-                    with cb_col:
-                        checked = st.checkbox(
-                            "sel", value=img["id"] in st.session_state.selected_ids,
-                            key=f"cb_{img['id']}", label_visibility="collapsed",
-                        )
-                        if checked:
-                            st.session_state.selected_ids.add(img["id"])
-                        else:
-                            st.session_state.selected_ids.discard(img["id"])
-                    with info_col:
-                        mood = img.get("primary_mood", "—")
-                        tag  = f'{bi("check-circle", "0.7em", "#34d399")}' if analyzed else f'{bi("hourglass-split", "0.7em", "rgba(255,255,255,0.3)")}'
-                        err  = img.get("analysis_error", "")
-                        err_badge = f" {bi('x-circle', '0.7em', '#f87171')}" if err else ""
-                        st.markdown(
-                            f"<p style='font-size:0.72rem;margin:0;font-weight:300'>"
-                            f"{tag} {img.get('title') or 'Untitled'}{err_badge}</p>"
-                            f"<p style='font-size:0.58rem;color:rgba(255,255,255,0.3);margin:0'>"
-                            f"{mood}</p>",
-                            unsafe_allow_html=True,
-                        )
-                    with act_col:
-                        btn_cols = st.columns(2)
-                        with btn_cols[0]:
-                            if not analyzed:
-                                if st.button("\u21BB", key=f"re_{img['id']}", help="Re-analyse"):
-                                    src = img.get("image_url") or ""
-                                    if src:
-                                        with st.spinner("Analysing…"):
-                                            r = _run_analysis(img["id"], src)
-                                        if r.success:
-                                            st.toast(f"Analysed: {r.primary_mood} · {r.optimal_time}")
-                                        else:
-                                            st.toast(f"Analysis failed: {r.error_message[:60]}", icon="🚨")
-                                        _invalidate_caches()
-                        with btn_cols[1]:
-                            if st.button("\u2715", key=f"del_{img['id']}", help="Remove"):
-                                try:
-                                    deactivate_image(img["id"])
-                                    st.session_state.selected_ids.discard(img["id"])
-                                    st.toast(f"Removed: {img.get('title') or 'Image'}")
-                                    _invalidate_caches()
-                                except Exception as e:
-                                    st.toast(f"Failed to remove image: {e}", icon="🚨")
-
-                # Bulk action buttons
-                selected = st.session_state.selected_ids
-                if selected:
-                    st.warning(f"{len(selected)} selected")
-                    b1, b2 = st.columns(2)
-
-                    with b1:
-                        if "confirm_bulk_delete" not in st.session_state:
-                            st.session_state.confirm_bulk_delete = False
-
-                        if not st.session_state.confirm_bulk_delete:
-                            if st.button("Delete Selected", key="bulk_del", use_container_width=True):
-                                st.session_state.confirm_bulk_delete = True
-                        else:
-                            st.error(f"Delete {len(selected)} images?")
-                            c1, c2 = st.columns(2)
-                            with c1:
-                                if st.button("Confirm", key="confirm_del"):
-                                    deactivate_images(list(selected))
-                                    st.session_state.selected_ids = set()
-                                    st.session_state.confirm_bulk_delete = False
-                                    _invalidate_caches()
-                                    st.toast(f"Deleted {len(selected)} images")
-                            with c2:
-                                if st.button("Cancel", key="cancel_del"):
-                                    st.session_state.confirm_bulk_delete = False
-
-                    with b2:
-                        if st.button("Re-analyse Selected", key="bulk_re", use_container_width=True):
-                            sel_imgs = [i for i in images if i["id"] in selected]
-                            progress = st.progress(0)
-                            for idx, si in enumerate(sel_imgs):
-                                src = si.get("image_url") or ""
-                                if src:
-                                    _run_analysis(si["id"], src)
-                                progress.progress((idx + 1) / len(sel_imgs))
-                            _invalidate_caches()
-                            st.toast(f"Re-analysed {len(sel_imgs)} images")
-                            st.session_state.selected_ids = set()
-
-        # ── Image Gallery Preview (Enhancement 3) ────────────────────────
-        with st.expander("\u29C9  Gallery View", expanded=False):
-            gallery_imgs = cached_get_all_images(user_id=user_id)
+        if override_active:
+            # Manual mode: show Prev/Next for sequential navigation
+            prev_col, next_col, like_col = st.columns(3)
+            all_imgs = cached_get_all_images(user_id=user_id)
             if profile_type == "Kids":
                 _kids_blocked = {"melancholic", "mysterious"}
-                gallery_imgs = [i for i in gallery_imgs if i.get("primary_mood") not in _kids_blocked]
-            if not gallery_imgs:
-                st.caption("No images yet.")
+                all_imgs = [i for i in all_imgs if i.get("primary_mood") not in _kids_blocked]
+
+            with prev_col:
+                if st.button("\u276E  Prev", key=f"prev_{img['id']}", use_container_width=True, disabled=len(all_imgs) < 2):
+                    if all_imgs and len(all_imgs) > 1:
+                        current_idx = next((i for i, im in enumerate(all_imgs) if im["id"] == img["id"]), 0)
+                        prev_idx = (current_idx - 1) % len(all_imgs)
+                        update_preferences(user_id, override_image_id=all_imgs[prev_idx]["id"])
+                        st.toast(f"← {all_imgs[prev_idx].get('title', 'Image')}")
+                        st.session_state["_force_refresh"] = True
+                        st.rerun()
+
+            with next_col:
+                if st.button("Next  \u276F", key=f"next_{img['id']}", use_container_width=True, disabled=len(all_imgs) < 2):
+                    if all_imgs and len(all_imgs) > 1:
+                        current_idx = next((i for i, im in enumerate(all_imgs) if im["id"] == img["id"]), 0)
+                        next_idx = (current_idx + 1) % len(all_imgs)
+                        update_preferences(user_id, override_image_id=all_imgs[next_idx]["id"])
+                        st.toast(f"{all_imgs[next_idx].get('title', 'Image')} →")
+                        st.session_state["_force_refresh"] = True
+                        st.rerun()
+
+            with like_col:
+                if st.button("\u2764  Like", key=f"like_{img['id']}", use_container_width=True):
+                    save_interaction(img["id"], "like")
+                    st.toast("Liked — this image will score higher.")
+                    st.session_state["_force_refresh"] = True
+                    st.rerun()
+        else:
+            # Auto mode: standard Like/Skip feedback
+            like_col, skip_col = st.columns(2)
+            with like_col:
+                if st.button("\u2764  Like", key=f"like_{img['id']}", use_container_width=True):
+                    save_interaction(img["id"], "like")
+                    st.toast("Liked — this image will score higher.")
+                    st.session_state["_force_refresh"] = True
+                    st.rerun()
+            with skip_col:
+                if st.button("\u2716  Skip", key=f"skip_{img['id']}", use_container_width=True):
+                    save_interaction(img["id"], "skip")
+                    st.toast("Skipped — this image will show less often.")
+                    st.session_state["_force_refresh"] = True
+                    st.rerun()
+
+    st.divider()
+
+    # ── Mood Preference ───────────────────────────────────────────────
+    from logic.engine import KIDS_BLOCKED_MOODS
+    _all_moods = ["calm", "energetic", "joyful", "melancholic", "mysterious", "neutral"]
+    MOODS = [m for m in _all_moods if profile_type != "Kids" or m not in KIDS_BLOCKED_MOODS]
+    current_mood = prefs.get("preferred_mood", "calm")
+    # If current saved mood is blocked for Kids, silently fall back to calm
+    if current_mood not in MOODS:
+        current_mood = "calm"
+    new_mood = st.selectbox(
+        "Preferred Mood",
+        MOODS,
+        index=MOODS.index(current_mood),
+        key="mood_select",
+    )
+    if new_mood != current_mood:
+        try:
+            update_preferences(user_id, preferred_mood=new_mood)
+            prefs["preferred_mood"] = new_mood
+            st.toast(f"Mood set to {new_mood.capitalize()}")
+        except Exception as e:
+            st.toast(f"Failed to save mood: {e}", icon="🚨")
+
+    # ── AI Sensitivity ────────────────────────────────────────────────
+    SENS        = ["low", "medium", "high"]
+    SENS_LABELS = ["Manual", "Balanced", "Full AI"]
+    current_sens = prefs.get("sensitivity", "medium")
+    sens_idx     = SENS.index(current_sens) if current_sens in SENS else 1
+    new_sens_idx = st.radio(
+        "AI Sensitivity",
+        SENS_LABELS,
+        index=sens_idx,
+        key="sens_radio",
+        horizontal=True,
+    )
+    new_sens = SENS[SENS_LABELS.index(new_sens_idx)]
+    if new_sens != current_sens:
+        try:
+            update_preferences(user_id, sensitivity=new_sens)
+            prefs["sensitivity"] = new_sens
+            _sens_label = {"low": "Manual", "medium": "Balanced", "high": "Full AI"}.get(new_sens, new_sens)
+            st.toast(f"AI Sensitivity → {_sens_label}")
+        except Exception as e:
+            st.toast(f"Failed to save sensitivity: {e}", icon="🚨")
+
+    # ── Quick Presets (Enhancement 8) ─────────────────────────────────
+    presets = cached_get_presets()
+    if presets:
+        preset_names = ["— Select Preset —"] + [p["name"] for p in presets]
+        # Dynamic key resets selectbox to default after each application,
+        # preventing re-application on the very next rerun.
+        _pk = st.session_state.get("_preset_counter", 0)
+        selected_preset = st.selectbox(
+            "Quick Presets", preset_names,
+            index=0, key=f"preset_select_{_pk}", label_visibility="collapsed",
+        )
+        if selected_preset != "— Select Preset —":
+            preset = next(p for p in presets if p["name"] == selected_preset)
+            apply_preset(preset["id"], user_id=user_id)
+            st.toast(f"Applied: {selected_preset}")
+            st.session_state["_preset_counter"] = _pk + 1
+            st.session_state["_force_refresh"] = True
+            st.rerun()
+
+    with st.popover("Save Current as Preset", use_container_width=True):
+        preset_name = st.text_input("Preset name", key="new_preset_name")
+        if preset_name and st.button("Save Preset", key="save_preset_btn"):
+            save_preset(preset_name, new_mood, new_sens)
+            cached_get_presets.clear()
+            st.toast(f"Preset '{preset_name}' saved!")
+        # Delete custom presets
+        custom = [p for p in presets if not p.get("is_default")]
+        if custom:
+            st.caption("Delete a custom preset:")
+            for p in custom:
+                if st.button(f"\u2715 {p['name']}", key=f"delpreset_{p['id']}"):
+                    delete_preset(p["id"])
+                    cached_get_presets.clear()
+                    st.toast(f"Deleted preset '{p['name']}'")
+
+    # ── Pro: Mood Schedule ────────────────────────────────────────────
+    if profile_type == "Professional":
+        with st.expander("\u29BE  Mood Schedule", expanded=False):
+            st.caption("Pin a mood to each time period. Takes priority over your global preference.")
+            _all_moods_pro = ["calm", "energetic", "joyful", "melancholic", "mysterious", "neutral"]
+            _periods_cfg = ["dawn", "morning", "afternoon", "evening", "night"]
+            _time_map = dict(prefs.get("time_mood_map") or {})
+            _new_map: dict = {}
+            for _period in _periods_cfg:
+                _c1, _c2 = st.columns([1.1, 2])
+                with _c1:
+                    st.markdown(
+                        f"<div style='font-size:0.62rem;padding-top:8px;color:rgba(255,255,255,0.7)'>"
+                        f"{bi(PERIOD_ICONS_BI[_period], '0.85em')} {_period.capitalize()}</div>",
+                        unsafe_allow_html=True,
+                    )
+                with _c2:
+                    _opts = ["— Auto —"] + _all_moods_pro
+                    _cur  = _time_map.get(_period, "— Auto —")
+                    if _cur not in _opts:
+                        _cur = "— Auto —"
+                    _sel = st.selectbox(
+                        "", _opts, index=_opts.index(_cur),
+                        key=f"tmm_{_period}", label_visibility="collapsed",
+                    )
+                    if _sel != "— Auto —":
+                        _new_map[_period] = _sel
+            # Preserve stored custom weights key
+            if "__weights" in _time_map:
+                _new_map["__weights"] = _time_map["__weights"]
+            if st.button("Save Schedule", use_container_width=True, key="save_mood_schedule"):
+                try:
+                    update_preferences(user_id, time_mood_map=_new_map)
+                    cached_get_preferences.clear()
+                    st.toast("Mood schedule saved")
+                except Exception as e:
+                    st.toast(f"Failed to save schedule: {e}", icon="\U0001F6A8")
+
+    # ── Pro: Scoring Weights ──────────────────────────────────────────
+    if profile_type == "Professional":
+        with st.expander("\u29C6  Scoring Weights", expanded=False):
+            st.caption("Fine-tune how each factor is weighted when the AI picks an image.")
+            _time_map_w   = dict(prefs.get("time_mood_map") or {})
+            _saved_w      = _time_map_w.get("__weights") or {}
+            _default_w    = WEIGHT_PROFILES.get(prefs.get("sensitivity", "medium"), WEIGHT_PROFILES["medium"])
+            _w_time = st.slider("Time Match",      0.0, 1.0, float(_saved_w.get("time",       _default_w["time"])),       0.05, key="pro_w_time")
+            _w_mood = st.slider("Mood Match",      0.0, 1.0, float(_saved_w.get("mood",       _default_w["mood"])),       0.05, key="pro_w_mood")
+            _w_pref = st.slider("Preference",      0.0, 1.0, float(_saved_w.get("preference", _default_w["preference"])), 0.05, key="pro_w_pref")
+            _w_qual = st.slider("Image Quality",   0.0, 1.0, float(_saved_w.get("quality",    _default_w["quality"])),    0.05, key="pro_w_qual")
+            _w_rec  = st.slider("Recency Penalty", 0.0, 1.0, float(prefs.get("recency_weight", 0.2)),                     0.05, key="pro_w_rec")
+            _total  = _w_time + _w_mood + _w_pref + _w_qual
+            _total_color = "#34d399" if 0.95 <= _total <= 1.05 else "#fbbf24"
+            st.markdown(
+                f"<div style='font-size:0.58rem;color:{_total_color};margin-top:4px'>"
+                f"Total weight: {_total:.2f} &nbsp;·&nbsp; ideally 1.0</div>",
+                unsafe_allow_html=True,
+            )
+            _wc1, _wc2 = st.columns(2)
+            with _wc1:
+                if st.button("Save", use_container_width=True, key="save_pro_weights"):
+                    try:
+                        _map_upd = {k: v for k, v in _time_map_w.items() if not k.startswith("__")}
+                        _map_upd["__weights"] = {
+                            "time": _w_time, "mood": _w_mood,
+                            "preference": _w_pref, "quality": _w_qual,
+                            "recency": _w_rec,
+                        }
+                        update_preferences(user_id, time_mood_map=_map_upd, recency_weight=_w_rec)
+                        cached_get_preferences.clear()
+                        st.toast("Scoring weights saved")
+                    except Exception as e:
+                        st.toast(f"Failed: {e}", icon="\U0001F6A8")
+            with _wc2:
+                if st.button("Reset", use_container_width=True, key="reset_pro_weights"):
+                    try:
+                        _map_rst = {k: v for k, v in _time_map_w.items() if not k.startswith("__")}
+                        update_preferences(user_id, time_mood_map=_map_rst, recency_weight=0.2)
+                        cached_get_preferences.clear()
+                        st.toast("Weights reset to defaults")
+                    except Exception as e:
+                        st.toast(f"Failed: {e}", icon="\U0001F6A8")
+
+    st.divider()
+
+    # ── Manual Override ───────────────────────────────────────────────
+    override_on = st.toggle(
+        "Manual Override",
+        value=bool(prefs.get("override_active", 0)),
+        help="When ON, the AI is bypassed entirely. Use Prev/Next to navigate.",
+    )
+    if override_on != bool(prefs.get("override_active", 0)):
+        try:
+            if override_on:
+                all_imgs = cached_get_all_images(user_id=user_id)
+                if not all_imgs:
+                    st.warning("No images in library. Upload one first to use Manual Override.")
+                    return
+                update_preferences(user_id, override_active=1, override_image_id=all_imgs[0]["id"])
+                st.toast("Manual Override ON — AI bypassed")
             else:
+                update_preferences(user_id, override_active=0, override_image_id=None)
+                st.toast("Manual Override OFF — AI resumed")
+            st.session_state["_force_refresh"] = True
+            st.rerun()
+        except Exception as e:
+            st.toast(f"Failed to toggle override: {e}", icon="🚨")
+
+    # ── Refresh ────────────────────────────────────────────────────────
+    if st.button("\u27F3  Refresh Now", use_container_width=True):
+        _invalidate_caches()
+        st.rerun()
+
+    st.divider()
+
+    # ── Upload Image ──────────────────────────────────────────────────
+    with st.expander("\u2912  Upload Image", expanded=False):
+        uploaded = st.file_uploader(
+            "Choose an image",
+            type=["jpg", "jpeg", "png", "webp"],
+            label_visibility="collapsed",
+        )
+        title = st.text_input("Title (optional)", placeholder="e.g. Misty Forest Dawn")
+
+        if uploaded and st.button("Save & Analyse", use_container_width=True):
+            with st.spinner("Uploading to Cloudinary…"):
+                cloud = cloudinary_upload(
+                    uploaded.getvalue(),
+                    filename=uploaded.name,
+                )
+
+            if not cloud["success"]:
+                st.error(f"Upload failed: {cloud['error']}")
+                st.stop()
+
+            image_id = add_image(
+                title=title or uploaded.name,
+                image_url=cloud["secure_url"],
+                user_id=user_id,
+            )
+
+            with st.spinner("Analysing with Gemini…"):
+                r = _run_analysis(image_id, cloud["secure_url"])
+
+            if not r.success and "safety filters" in r.error_message:
+                hard_delete_image(image_id)
+                cloudinary_delete(cloud.get("public_id", ""))
+                st.error("🚫 Blocked: content not permitted by safety filters. Image has not been saved.")
+                _invalidate_caches()
+            elif r.success and profile_type == "Kids" and not r.kids_safe:
+                hard_delete_image(image_id)
+                cloudinary_delete(cloud.get("public_id", ""))
+                st.error("🚫 Blocked: this image is not suitable for Kids mode and has not been saved.")
+                _invalidate_caches()
+            elif r.success:
+                st.success(f"Analysed! Mood: {r.primary_mood} · Time: {r.optimal_time}")
+                _invalidate_caches()
+            else:
+                st.error(f"Analysis failed: {r.error_message}")
+                st.info("Image saved — you can re-analyse later.")
+                _invalidate_caches()
+
+    # ── Add by URL ────────────────────────────────────────────────────
+    with st.expander("\u2750  Add by URL", expanded=False):
+        url_input  = st.text_input("Image URL", placeholder="https://…")
+        url_title  = st.text_input("Title", placeholder="e.g. Aurora Borealis", key="url_title")
+        if url_input and st.button("Add & Analyse URL", use_container_width=True):
+            # Validate URL
+            if not url_input.startswith(("http://", "https://")):
+                st.error("URL must start with http:// or https://")
+            else:
+                try:
+                    # Quick connectivity check (HEAD request with timeout)
+                    import urllib.request
+                    req = urllib.request.Request(url_input, method="HEAD", headers={"User-Agent": "Mozilla/5.0"})
+                    with urllib.request.urlopen(req, timeout=5) as resp:
+                        content_type = resp.headers.get("Content-Type", "")
+                        if not content_type.startswith("image/"):
+                            st.error("URL does not point to an image. Check the URL and try again.")
+                        else:
+                            # URL is valid, proceed
+                            image_id = add_image(title=url_title or url_input[:40], image_url=url_input, user_id=user_id)
+                            with st.spinner("Analysing with Gemini…"):
+                                r = _run_analysis(image_id, url_input)
+                            if not r.success and "safety filters" in r.error_message:
+                                hard_delete_image(image_id)
+                                st.error("🚫 Blocked: content not permitted by safety filters. Image has not been saved.")
+                                _invalidate_caches()
+                            elif r.success and profile_type == "Kids" and not r.kids_safe:
+                                hard_delete_image(image_id)
+                                st.error("🚫 Blocked: this image is not suitable for Kids mode and has not been saved.")
+                                _invalidate_caches()
+                            elif r.success:
+                                st.success(f"✅ Added! Mood: {r.primary_mood}")
+                                _invalidate_caches()
+                            else:
+                                st.warning(f"⚠️ Saved without analysis: {r.error_message}")
+                                _invalidate_caches()
+                except urllib.error.URLError as e:
+                    st.error(f"Cannot access URL: {str(e)[:100]}")
+                except urllib.error.HTTPError as e:
+                    st.error(f"HTTP error {e.code}: {e.reason}")
+                except Exception as e:
+                    st.error(f"Error: {str(e)[:100]}")
+
+    st.divider()
+
+    # ── Image Library with Search & Filtering (Enhancements 1 & 2) ───
+    with st.expander("\u25A6  Image Library", expanded=False):
+        # Search & Filter controls
+        lib_search = st.text_input(
+            "Search", placeholder="Search title or tags…",
+            key="lib_search", label_visibility="collapsed",
+        )
+        filt_col1, filt_col2 = st.columns(2)
+        with filt_col1:
+            mood_filter = st.selectbox(
+                "Mood", ["All", "calm", "energetic", "joyful", "melancholic", "mysterious", "neutral"],
+                key="lib_mood_filter", label_visibility="collapsed",
+            )
+        with filt_col2:
+            time_filter = st.selectbox(
+                "Time", ["All", "dawn", "morning", "afternoon", "evening", "night", "any"],
+                key="lib_time_filter", label_visibility="collapsed",
+            )
+
+        # Fetch images (filtered or all)
+        has_filter = lib_search or mood_filter != "All" or time_filter != "All"
+        if has_filter:
+            images = search_images(
+                text=lib_search,
+                mood=mood_filter if mood_filter != "All" else "",
+                time_period=time_filter if time_filter != "All" else "",
+                user_id=user_id,
+            )
+        else:
+            images = cached_get_all_images(user_id=user_id)
+
+        st.caption(f"{len(images)} image{'s' if len(images) != 1 else ''}")
+
+        if not images:
+            st.caption("No images match — upload one above.")
+        else:
+            # Bulk selection controls
+            if "selected_ids" not in st.session_state:
+                st.session_state.selected_ids = set()
+
+            sa_col, da_col = st.columns(2)
+            with sa_col:
+                if st.button("Select All", key="sel_all", use_container_width=True):
+                    st.session_state.selected_ids = {img["id"] for img in images}
+            with da_col:
+                if st.button("Deselect All", key="desel_all", use_container_width=True):
+                    st.session_state.selected_ids = set()
+
+            # Image list with checkboxes
+            for img in images:
+                analyzed = bool(img.get("is_analyzed"))
+                cb_col, info_col, act_col = st.columns([0.5, 3, 1.5])
+                with cb_col:
+                    checked = st.checkbox(
+                        "sel", value=img["id"] in st.session_state.selected_ids,
+                        key=f"cb_{img['id']}", label_visibility="collapsed",
+                    )
+                    if checked:
+                        st.session_state.selected_ids.add(img["id"])
+                    else:
+                        st.session_state.selected_ids.discard(img["id"])
+                with info_col:
+                    mood = img.get("primary_mood", "—")
+                    tag  = f'{bi("check-circle", "0.7em", "#34d399")}' if analyzed else f'{bi("hourglass-split", "0.7em", "rgba(255,255,255,0.3)")}'
+                    err  = img.get("analysis_error", "")
+                    err_badge = f" {bi('x-circle', '0.7em', '#f87171')}" if err else ""
+                    st.markdown(
+                        f"<p style='font-size:0.72rem;margin:0;font-weight:300'>"
+                        f"{tag} {img.get('title') or 'Untitled'}{err_badge}</p>"
+                        f"<p style='font-size:0.58rem;color:rgba(255,255,255,0.3);margin:0'>"
+                        f"{mood}</p>",
+                        unsafe_allow_html=True,
+                    )
+                with act_col:
+                    btn_cols = st.columns(2)
+                    with btn_cols[0]:
+                        if not analyzed:
+                            if st.button("\u21BB", key=f"re_{img['id']}", help="Re-analyse"):
+                                src = img.get("image_url") or ""
+                                if src:
+                                    with st.spinner("Analysing…"):
+                                        r = _run_analysis(img["id"], src)
+                                    if r.success:
+                                        st.toast(f"Analysed: {r.primary_mood} · {r.optimal_time}")
+                                    else:
+                                        st.toast(f"Analysis failed: {r.error_message[:60]}", icon="🚨")
+                                    _invalidate_caches()
+                    with btn_cols[1]:
+                        if st.button("\u2715", key=f"del_{img['id']}", help="Remove"):
+                            try:
+                                deactivate_image(img["id"])
+                                st.session_state.selected_ids.discard(img["id"])
+                                st.toast(f"Removed: {img.get('title') or 'Image'}")
+                                _invalidate_caches()
+                            except Exception as e:
+                                st.toast(f"Failed to remove image: {e}", icon="🚨")
+
+            # Bulk action buttons
+            selected = st.session_state.selected_ids
+            if selected:
+                st.warning(f"{len(selected)} selected")
+                b1, b2 = st.columns(2)
+
+                with b1:
+                    if "confirm_bulk_delete" not in st.session_state:
+                        st.session_state.confirm_bulk_delete = False
+
+                    if not st.session_state.confirm_bulk_delete:
+                        if st.button("Delete Selected", key="bulk_del", use_container_width=True):
+                            st.session_state.confirm_bulk_delete = True
+                    else:
+                        st.error(f"Delete {len(selected)} images?")
+                        c1, c2 = st.columns(2)
+                        with c1:
+                            if st.button("Confirm", key="confirm_del"):
+                                deactivate_images(list(selected))
+                                st.session_state.selected_ids = set()
+                                st.session_state.confirm_bulk_delete = False
+                                _invalidate_caches()
+                                st.toast(f"Deleted {len(selected)} images")
+                        with c2:
+                            if st.button("Cancel", key="cancel_del"):
+                                st.session_state.confirm_bulk_delete = False
+
+                with b2:
+                    if st.button("Re-analyse Selected", key="bulk_re", use_container_width=True):
+                        sel_imgs = [i for i in images if i["id"] in selected]
+                        progress = st.progress(0)
+                        for idx, si in enumerate(sel_imgs):
+                            src = si.get("image_url") or ""
+                            if src:
+                                _run_analysis(si["id"], src)
+                            progress.progress((idx + 1) / len(sel_imgs))
+                        _invalidate_caches()
+                        st.toast(f"Re-analysed {len(sel_imgs)} images")
+                        st.session_state.selected_ids = set()
+
+    # ── Image Gallery Preview (Enhancement 3) ────────────────────────
+    with st.expander("\u29C9  Gallery View", expanded=False):
+        gallery_imgs = cached_get_all_images(user_id=user_id)
+        if profile_type == "Kids":
+            _kids_blocked = {"melancholic", "mysterious"}
+            gallery_imgs = [i for i in gallery_imgs if i.get("primary_mood") not in _kids_blocked]
+        if not gallery_imgs:
+            st.caption("No images yet.")
+        else:
+            MOOD_COLORS = {
+                "calm": "#60a5fa", "energetic": "#fbbf24", "joyful": "#34d399",
+                "melancholic": "#c084fc", "mysterious": "#818cf8", "neutral": "#94a3b8",
+            }
+            cols = st.columns(3)
+            for i, gimg in enumerate(gallery_imgs):
+                with cols[i % 3]:
+                    url = gimg.get("image_url", "")
+                    if url:
+                        st.image(url, width=90)
+                    mood = gimg.get("primary_mood", "neutral")
+                    analyzed = bool(gimg.get("is_analyzed"))
+                    color = MOOD_COLORS.get(mood, "#94a3b8")
+                    status_icon = bi("check-circle-fill", "0.6em", color) if analyzed else bi("hourglass-split", "0.6em", "rgba(255,255,255,0.3)")
+                    st.markdown(
+                        f"<p style='font-size:0.55rem;margin:0;text-align:center'>"
+                        f"<span style='color:{color}'>{status_icon} {mood}</span></p>",
+                        unsafe_allow_html=True,
+                    )
+                    if st.button("Display", key=f"gal_{gimg['id']}", use_container_width=True):
+                        update_preferences(user_id, override_active=1, override_image_id=gimg["id"])
+                        st.toast(f"Displaying: {gimg.get('title', 'Image')}")
+                        st.session_state["_force_refresh"] = True
+                        st.rerun()
+
+    st.divider()
+
+    # ── Image Scheduling (Enhancement 9) ─────────────────────────────
+    with st.expander("\u29D6  Image Scheduling", expanded=False):
+        sched_imgs = cached_get_all_images(user_id=user_id)
+        if not sched_imgs:
+            st.caption("No images to schedule.")
+        else:
+            sched_target = st.selectbox(
+                "Select image",
+                options=sched_imgs,
+                format_func=lambda x: x.get("title") or "Untitled",
+                key="sched_image_select",
+                label_visibility="collapsed",
+            )
+            if sched_target:
+                sid = sched_target["id"]
+                current_window = sched_target.get("time_window") or "any"
+
+                s_start = st.date_input("Start date", value=None, key=f"sched_s_{sid}")
+                s_end = st.date_input("End date", value=None, key=f"sched_e_{sid}")
+
+                all_periods = ["dawn", "morning", "afternoon", "evening", "night"]
+                current_periods = all_periods if current_window == "any" else [
+                    p.strip() for p in current_window.split(",") if p.strip() in all_periods
+                ]
+                s_window = st.multiselect(
+                    "Show during", all_periods,
+                    default=current_periods,
+                    key=f"sched_w_{sid}",
+                )
+
+                if st.button("Save Schedule", key=f"sched_save_{sid}", use_container_width=True):
+                    try:
+                        window_str = "any" if set(s_window) == set(all_periods) or not s_window else ",".join(s_window)
+                        update_image_schedule(
+                            sid,
+                            str(s_start) if s_start else "",
+                            str(s_end) if s_end else "",
+                            window_str,
+                        )
+                        _invalidate_caches()
+                        st.toast(f"Schedule saved for {sched_target.get('title') or 'image'}")
+                    except Exception as e:
+                        st.toast(f"Failed to save schedule: {e}", icon="🚨")
+
+    st.divider()
+
+    # ── Analytics Dashboard ───────────────────────────────────────────
+    with st.expander("\u2261  Analytics", expanded=False):
+        _pro_views = ["Display Stats", "Score Trend"] if profile_type == "Professional" else []
+        analytics_view = st.selectbox(
+            "View", ["Interactions", "Mood Trends", "Usage Patterns"] + _pro_views,
+            key="analytics_view", label_visibility="collapsed",
+        )
+
+        if analytics_view == "Interactions":
+            data = cached_analytics_summary(user_id=user_id)
+            if data:
+                df = pd.DataFrame(data)
+                if not df.empty and "likes" in df.columns:
+                    chart_df = df.set_index("title")[["likes", "skips"]].head(10)
+                    if chart_df[["likes", "skips"]].sum().sum() > 0:
+                        st.bar_chart(chart_df)
+                    st.markdown("<p style='font-size:0.6rem;color:rgba(255,255,255,0.4);"
+                                "margin:8px 0 2px'>Most Liked</p>", unsafe_allow_html=True)
+                    for _, row in df.nlargest(3, "likes").iterrows():
+                        st.markdown(f"<p style='font-size:0.65rem;margin:2px 0;font-weight:300'>"
+                                    f"{bi('heart-fill', '0.65em', '#f472b6')} {row['likes']} — {row['title']}</p>",
+                                    unsafe_allow_html=True)
+                    st.markdown("<p style='font-size:0.6rem;color:rgba(255,255,255,0.4);"
+                                "margin:8px 0 2px'>Most Skipped</p>", unsafe_allow_html=True)
+                    for _, row in df.nlargest(3, "skips").iterrows():
+                        st.markdown(f"<p style='font-size:0.65rem;margin:2px 0;font-weight:300'>"
+                                    f"{bi('skip-forward-fill', '0.65em', '#94a3b8')} {row['skips']} — {row['title']}</p>",
+                                    unsafe_allow_html=True)
+            else:
+                st.caption("No interaction data yet.")
+
+        elif analytics_view == "Mood Trends":
+            _days_opts = {"7 days": 7, "30 days": 30, "60 days": 60, "90 days": 90}
+            _days_key  = st.selectbox("Window", list(_days_opts.keys()),
+                                      index=1, key="mood_trend_window",
+                                      label_visibility="collapsed") if profile_type == "Professional" else "30 days"
+            _days_val  = _days_opts.get(_days_key, 30) if profile_type == "Professional" else 30
+            data = cached_mood_over_time(_days_val, user_id=user_id)
+            if data:
+                df = pd.DataFrame(data)
+                if not df.empty and df["count"].sum() > 0:
+                    pivot = df.pivot_table(
+                        index="date", columns="mood", values="count",
+                        fill_value=0, aggfunc="sum",
+                    )
+                    if not pivot.empty and pivot.values.sum() > 0:
+                        st.area_chart(pivot)
+                else:
+                    st.caption("No mood history yet.")
+            else:
+                st.caption("No mood history yet.")
+
+        elif analytics_view == "Usage Patterns":
+            data = cached_hourly_usage()
+            if data:
+                df = pd.DataFrame(data)
+                if not df.empty and df["count"].sum() > 0:
+                    st.bar_chart(df.set_index("hour")["count"])
+                else:
+                    st.caption("No usage data yet.")
+            else:
+                st.caption("No usage data yet.")
+
+        elif analytics_view == "Display Stats":
+            # Pro only — top images by how many times the AI selected them
+            data = cached_top_images_by_display(user_id=user_id, limit=10)
+            if data:
+                df = pd.DataFrame(data)
+                if not df.empty and df["display_count"].sum() > 0:
+                    st.bar_chart(df.set_index("title")["display_count"])
                 MOOD_COLORS = {
                     "calm": "#60a5fa", "energetic": "#fbbf24", "joyful": "#34d399",
                     "melancholic": "#c084fc", "mysterious": "#818cf8", "neutral": "#94a3b8",
                 }
-                cols = st.columns(3)
-                for i, gimg in enumerate(gallery_imgs):
-                    with cols[i % 3]:
-                        url = gimg.get("image_url", "")
-                        if url:
-                            st.image(url, width=90)
-                        mood = gimg.get("primary_mood", "neutral")
-                        analyzed = bool(gimg.get("is_analyzed"))
-                        color = MOOD_COLORS.get(mood, "#94a3b8")
-                        status_icon = bi("check-circle-fill", "0.6em", color) if analyzed else bi("hourglass-split", "0.6em", "rgba(255,255,255,0.3)")
-                        st.markdown(
-                            f"<p style='font-size:0.55rem;margin:0;text-align:center'>"
-                            f"<span style='color:{color}'>{status_icon} {mood}</span></p>",
-                            unsafe_allow_html=True,
-                        )
-                        if st.button("Display", key=f"gal_{gimg['id']}", use_container_width=True):
-                            update_preferences(user_id, override_active=1, override_image_id=gimg["id"])
-                            st.toast(f"Displaying: {gimg.get('title', 'Image')}")
-                            st.session_state["_force_refresh"] = True
-                            st.rerun()
-
-        st.divider()
-
-        # ── Image Scheduling (Enhancement 9) ─────────────────────────────
-        with st.expander("\u29D6  Image Scheduling", expanded=False):
-            sched_imgs = cached_get_all_images(user_id=user_id)
-            if not sched_imgs:
-                st.caption("No images to schedule.")
-            else:
-                sched_target = st.selectbox(
-                    "Select image",
-                    options=sched_imgs,
-                    format_func=lambda x: x.get("title") or "Untitled",
-                    key="sched_image_select",
-                    label_visibility="collapsed",
-                )
-                if sched_target:
-                    sid = sched_target["id"]
-                    current_window = sched_target.get("time_window") or "any"
-
-                    s_start = st.date_input("Start date", value=None, key=f"sched_s_{sid}")
-                    s_end = st.date_input("End date", value=None, key=f"sched_e_{sid}")
-
-                    all_periods = ["dawn", "morning", "afternoon", "evening", "night"]
-                    current_periods = all_periods if current_window == "any" else [
-                        p.strip() for p in current_window.split(",") if p.strip() in all_periods
-                    ]
-                    s_window = st.multiselect(
-                        "Show during", all_periods,
-                        default=current_periods,
-                        key=f"sched_w_{sid}",
+                for _, row in df.iterrows():
+                    mood_c = MOOD_COLORS.get(row["primary_mood"], "#94a3b8")
+                    st.markdown(
+                        f"<div style='display:flex;justify-content:space-between;"
+                        f"align-items:center;margin:3px 0'>"
+                        f"<span style='font-size:0.65rem;font-weight:300'>{row['title']}</span>"
+                        f"<span style='font-size:0.60rem;color:{mood_c}'>"
+                        f"{row['display_count']} &nbsp;{bi('display', '0.65em', mood_c)}</span>"
+                        f"</div>",
+                        unsafe_allow_html=True,
                     )
+            else:
+                st.caption("No display data yet.")
 
-                    if st.button("Save Schedule", key=f"sched_save_{sid}", use_container_width=True):
-                        try:
-                            window_str = "any" if set(s_window) == set(all_periods) or not s_window else ",".join(s_window)
-                            update_image_schedule(
-                                sid,
-                                str(s_start) if s_start else "",
-                                str(s_end) if s_end else "",
-                                window_str,
-                            )
-                            _invalidate_caches()
-                            st.toast(f"Schedule saved for {sched_target.get('title') or 'image'}")
-                        except Exception as e:
-                            st.toast(f"Failed to save schedule: {e}", icon="🚨")
-
-        st.divider()
-
-        # ── Analytics Dashboard ───────────────────────────────────────────
-        with st.expander("\u2261  Analytics", expanded=False):
-            _pro_views = ["Display Stats", "Score Trend"] if profile_type == "Professional" else []
-            analytics_view = st.selectbox(
-                "View", ["Interactions", "Mood Trends", "Usage Patterns"] + _pro_views,
-                key="analytics_view", label_visibility="collapsed",
-            )
-
-            if analytics_view == "Interactions":
-                data = cached_analytics_summary(user_id=user_id)
-                if data:
-                    df = pd.DataFrame(data)
-                    if not df.empty and "likes" in df.columns:
-                        chart_df = df.set_index("title")[["likes", "skips"]].head(10)
-                        if chart_df[["likes", "skips"]].sum().sum() > 0:
-                            st.bar_chart(chart_df)
-                        st.markdown("<p style='font-size:0.6rem;color:rgba(255,255,255,0.4);"
-                                    "margin:8px 0 2px'>Most Liked</p>", unsafe_allow_html=True)
-                        for _, row in df.nlargest(3, "likes").iterrows():
-                            st.markdown(f"<p style='font-size:0.65rem;margin:2px 0;font-weight:300'>"
-                                        f"{bi('heart-fill', '0.65em', '#f472b6')} {row['likes']} — {row['title']}</p>",
-                                        unsafe_allow_html=True)
-                        st.markdown("<p style='font-size:0.6rem;color:rgba(255,255,255,0.4);"
-                                    "margin:8px 0 2px'>Most Skipped</p>", unsafe_allow_html=True)
-                        for _, row in df.nlargest(3, "skips").iterrows():
-                            st.markdown(f"<p style='font-size:0.65rem;margin:2px 0;font-weight:300'>"
-                                        f"{bi('skip-forward-fill', '0.65em', '#94a3b8')} {row['skips']} — {row['title']}</p>",
-                                        unsafe_allow_html=True)
-                else:
-                    st.caption("No interaction data yet.")
-
-            elif analytics_view == "Mood Trends":
-                _days_opts = {"7 days": 7, "30 days": 30, "60 days": 60, "90 days": 90}
-                _days_key  = st.selectbox("Window", list(_days_opts.keys()),
-                                          index=1, key="mood_trend_window",
-                                          label_visibility="collapsed") if profile_type == "Professional" else "30 days"
-                _days_val  = _days_opts.get(_days_key, 30) if profile_type == "Professional" else 30
-                data = cached_mood_over_time(_days_val, user_id=user_id)
-                if data:
-                    df = pd.DataFrame(data)
-                    if not df.empty and df["count"].sum() > 0:
-                        pivot = df.pivot_table(
-                            index="date", columns="mood", values="count",
-                            fill_value=0, aggfunc="sum",
-                        )
-                        if not pivot.empty and pivot.values.sum() > 0:
-                            st.area_chart(pivot)
-                    else:
-                        st.caption("No mood history yet.")
-                else:
-                    st.caption("No mood history yet.")
-
-            elif analytics_view == "Usage Patterns":
-                data = cached_hourly_usage()
-                if data:
-                    df = pd.DataFrame(data)
-                    if not df.empty and df["count"].sum() > 0:
-                        st.bar_chart(df.set_index("hour")["count"])
-                    else:
-                        st.caption("No usage data yet.")
-                else:
-                    st.caption("No usage data yet.")
-
-            elif analytics_view == "Display Stats":
-                # Pro only — top images by how many times the AI selected them
-                data = cached_top_images_by_display(user_id=user_id, limit=10)
-                if data:
-                    df = pd.DataFrame(data)
-                    if not df.empty and df["display_count"].sum() > 0:
-                        st.bar_chart(df.set_index("title")["display_count"])
-                    MOOD_COLORS = {
-                        "calm": "#60a5fa", "energetic": "#fbbf24", "joyful": "#34d399",
-                        "melancholic": "#c084fc", "mysterious": "#818cf8", "neutral": "#94a3b8",
-                    }
-                    for _, row in df.iterrows():
-                        mood_c = MOOD_COLORS.get(row["primary_mood"], "#94a3b8")
-                        st.markdown(
-                            f"<div style='display:flex;justify-content:space-between;"
-                            f"align-items:center;margin:3px 0'>"
-                            f"<span style='font-size:0.65rem;font-weight:300'>{row['title']}</span>"
-                            f"<span style='font-size:0.60rem;color:{mood_c}'>"
-                            f"{row['display_count']} &nbsp;{bi('display', '0.65em', mood_c)}</span>"
-                            f"</div>",
-                            unsafe_allow_html=True,
-                        )
-                else:
-                    st.caption("No display data yet.")
-
-            elif analytics_view == "Score Trend":
-                # Pro only — AI confidence over time
-                _st_opts = {"7 days": 7, "30 days": 30, "60 days": 60, "90 days": 90}
-                _st_key  = st.selectbox("Window", list(_st_opts.keys()),
-                                        index=1, key="score_trend_window",
-                                        label_visibility="collapsed")
-                _st_days = _st_opts.get(_st_key, 30)
-                data = cached_score_trend(_st_days, user_id=user_id)
-                if data:
-                    df = pd.DataFrame(data)
-                    if not df.empty and df["avg_score"].sum() > 0:
-                        st.line_chart(df.set_index("date")["avg_score"])
-                        _avg = df["avg_score"].mean()
-                        _tot = df["decisions"].sum()
-                        st.markdown(
-                            f"<div style='font-size:0.60rem;color:rgba(255,255,255,0.4);margin-top:4px'>"
-                            f"Avg confidence: {_avg:.1%} &nbsp;·&nbsp; {_tot} decisions</div>",
-                            unsafe_allow_html=True,
-                        )
-                    else:
-                        st.caption("No score data yet.")
+        elif analytics_view == "Score Trend":
+            # Pro only — AI confidence over time
+            _st_opts = {"7 days": 7, "30 days": 30, "60 days": 60, "90 days": 90}
+            _st_key  = st.selectbox("Window", list(_st_opts.keys()),
+                                    index=1, key="score_trend_window",
+                                    label_visibility="collapsed")
+            _st_days = _st_opts.get(_st_key, 30)
+            data = cached_score_trend(_st_days, user_id=user_id)
+            if data:
+                df = pd.DataFrame(data)
+                if not df.empty and df["avg_score"].sum() > 0:
+                    st.line_chart(df.set_index("date")["avg_score"])
+                    _avg = df["avg_score"].mean()
+                    _tot = df["decisions"].sum()
+                    st.markdown(
+                        f"<div style='font-size:0.60rem;color:rgba(255,255,255,0.4);margin-top:4px'>"
+                        f"Avg confidence: {_avg:.1%} &nbsp;·&nbsp; {_tot} decisions</div>",
+                        unsafe_allow_html=True,
+                    )
                 else:
                     st.caption("No score data yet.")
+            else:
+                st.caption("No score data yet.")
 
-        # ── AI Analysis Settings (Enhancement 10) ────────────────────────
-        with st.expander("\u2699  AI Analysis Settings", expanded=False):
-            config = cached_get_display_config()
+    # ── AI Analysis Settings (Enhancement 10) ────────────────────────
+    with st.expander("\u2699  AI Analysis Settings", expanded=False):
+        config = cached_get_display_config()
 
-            depth = st.radio(
-                "Analysis Depth",
-                ["Quick", "Standard"],
-                index=0 if config.get("analysis_depth") == "quick" else 1,
-                key="analysis_depth_radio",
-                horizontal=True,
-            )
+        depth = st.radio(
+            "Analysis Depth",
+            ["Quick", "Standard"],
+            index=0 if config.get("analysis_depth") == "quick" else 1,
+            key="analysis_depth_radio",
+            horizontal=True,
+        )
 
-            focus_options = ["composition", "color_palette", "emotional_depth",
-                             "lighting", "texture", "symbolism"]
-            current_focus = [f for f in config.get("analysis_focus", "").split(",") if f in focus_options]
-            focus = st.multiselect("Focus Areas", focus_options, default=current_focus, key="analysis_focus_ms")
+        focus_options = ["composition", "color_palette", "emotional_depth",
+                         "lighting", "texture", "symbolism"]
+        current_focus = [f for f in config.get("analysis_focus", "").split(",") if f in focus_options]
+        focus = st.multiselect("Focus Areas", focus_options, default=current_focus, key="analysis_focus_ms")
 
-            custom = st.text_area(
-                "Custom Instructions",
-                value=config.get("custom_prompt", ""),
-                placeholder="e.g. Pay attention to architectural elements",
-                key="custom_prompt_ta",
-                height=68,
-            )
+        custom = st.text_area(
+            "Custom Instructions",
+            value=config.get("custom_prompt", ""),
+            placeholder="e.g. Pay attention to architectural elements",
+            key="custom_prompt_ta",
+            height=68,
+        )
 
-            if st.button("Save AI Settings", use_container_width=True, key="save_ai_settings"):
-                try:
-                    update_display_config(
-                        analysis_depth=depth.lower(),
-                        analysis_focus=",".join(focus),
-                        custom_prompt=custom,
-                    )
-                    cached_get_display_config.clear()
-                    st.toast("AI analysis settings saved")
-                except Exception as e:
-                    st.toast(f"Failed to save AI settings: {e}", icon="🚨")
-
-        st.divider()
-
-        # ── Evaluation: Static Baseline Mode ──────────────────────────────
-        with st.expander("⚗  Evaluation Mode", expanded=False):
-            st.caption("For academic comparison only. Switches AI scoring off — images cycle by round-robin regardless of context.")
-            # Initialise session state from DB on first load only
-            if "baseline_toggle" not in st.session_state:
-                st.session_state["baseline_toggle"] = bool(prefs.get("baseline_mode", 0))
-            new_baseline = st.toggle("Static Baseline (no AI)", key="baseline_toggle")
-            baseline_on = bool(prefs.get("baseline_mode", 0))
-            if new_baseline != baseline_on:
-                update_preferences(user_id, baseline_mode=1 if new_baseline else 0)
-                mode_label = "Static baseline ON — round-robin active" if new_baseline else "Adaptive AI restored"
-                st.toast(mode_label)
-                cached_get_preferences.clear()
-
-        st.divider()
-
-        # ── Recent History ─────────────────────────────────────────────────
-        with st.expander("\u2630  Recent History", expanded=False):
-            logs = get_recent_logs(limit=8, user_id=user_id)
-            if not logs:
-                st.caption("No decisions recorded yet.")
-            for log in logs:
-                score = int((log.get("selection_score") or 0) * 100)
-                title = log.get("image_title") or "Unknown"
-                _ts   = log.get("timestamp") or ""
-                ts    = str(_ts)[:16] if _ts else ""
-                override_badge = f" {bi('arrow-repeat', '0.6em', 'rgba(255,255,255,0.5)')}" if log.get("was_override") else ""
-                st.markdown(
-                    f"<div style='margin-bottom:8px'>"
-                    f"<p style='font-size:0.68rem;margin:0;font-weight:300'>{title}{override_badge}</p>"
-                    f"<p style='font-size:0.58rem;color:rgba(255,255,255,0.3);margin:0'>"
-                    f"{ts} · {score}%</p></div>",
-                    unsafe_allow_html=True,
+        if st.button("Save AI Settings", use_container_width=True, key="save_ai_settings"):
+            try:
+                update_display_config(
+                    analysis_depth=depth.lower(),
+                    analysis_focus=",".join(focus),
+                    custom_prompt=custom,
                 )
+                cached_get_display_config.clear()
+                st.toast("AI analysis settings saved")
+            except Exception as e:
+                st.toast(f"Failed to save AI settings: {e}", icon="🚨")
 
-            # ── Export logs as CSV ────────────────────────────────────────
-            all_logs = get_recent_logs(limit=500, user_id=user_id)
-            if all_logs:
-                buf = io.StringIO()
-                writer = csv.writer(buf)
+    st.divider()
+
+    # ── Evaluation: Static Baseline Mode ──────────────────────────────
+    with st.expander("⚗  Evaluation Mode", expanded=False):
+        st.caption("For academic comparison only. Switches AI scoring off — images cycle by round-robin regardless of context.")
+        # Initialise session state from DB on first load only
+        if "baseline_toggle" not in st.session_state:
+            st.session_state["baseline_toggle"] = bool(prefs.get("baseline_mode", 0))
+        new_baseline = st.toggle("Static Baseline (no AI)", key="baseline_toggle")
+        baseline_on = bool(prefs.get("baseline_mode", 0))
+        if new_baseline != baseline_on:
+            update_preferences(user_id, baseline_mode=1 if new_baseline else 0)
+            mode_label = "Static baseline ON — round-robin active" if new_baseline else "Adaptive AI restored"
+            st.toast(mode_label)
+            cached_get_preferences.clear()
+
+    st.divider()
+
+    # ── Recent History ─────────────────────────────────────────────────
+    with st.expander("\u2630  Recent History", expanded=False):
+        logs = get_recent_logs(limit=8, user_id=user_id)
+        if not logs:
+            st.caption("No decisions recorded yet.")
+        for log in logs:
+            score = int((log.get("selection_score") or 0) * 100)
+            title = log.get("image_title") or "Unknown"
+            _ts   = log.get("timestamp") or ""
+            ts    = str(_ts)[:16] if _ts else ""
+            override_badge = f" {bi('arrow-repeat', '0.6em', 'rgba(255,255,255,0.5)')}" if log.get("was_override") else ""
+            st.markdown(
+                f"<div style='margin-bottom:8px'>"
+                f"<p style='font-size:0.68rem;margin:0;font-weight:300'>{title}{override_badge}</p>"
+                f"<p style='font-size:0.58rem;color:rgba(255,255,255,0.3);margin:0'>"
+                f"{ts} · {score}%</p></div>",
+                unsafe_allow_html=True,
+            )
+
+        # ── Export logs as CSV ────────────────────────────────────────
+        all_logs = get_recent_logs(limit=500, user_id=user_id)
+        if all_logs:
+            buf = io.StringIO()
+            writer = csv.writer(buf)
+            writer.writerow([
+                "timestamp", "selection_mode", "image", "image_mood",
+                "time_period", "detected_mood", "score",
+                "t_time", "t_mood", "t_pref",
+                "t_quality", "t_recency", "t_interaction", "override",
+            ])
+            for lg in all_logs:
+                bd = lg.get("score_breakdown") or {}
                 writer.writerow([
-                    "timestamp", "selection_mode", "image", "image_mood",
-                    "time_period", "detected_mood", "score",
-                    "t_time", "t_mood", "t_pref",
-                    "t_quality", "t_recency", "t_interaction", "override",
+                    str(lg.get("timestamp") or "")[:19],
+                    bd.get("mode", "adaptive"),
+                    lg.get("image_title") or "Unknown",
+                    lg.get("image_mood") or "",
+                    lg.get("time_period") or "",
+                    lg.get("detected_mood") or "",
+                    f"{lg.get('selection_score', 0):.3f}",
+                    f"{bd.get('time', 0):.3f}",
+                    f"{bd.get('mood', 0):.3f}",
+                    f"{bd.get('preference', 0):.3f}",
+                    f"{bd.get('quality', 0):.3f}",
+                    f"{bd.get('recency', 0):.3f}",
+                    f"{bd.get('interaction', 0):.3f}",
+                    "yes" if lg.get("was_override") else "no",
                 ])
-                for lg in all_logs:
-                    bd = lg.get("score_breakdown") or {}
-                    writer.writerow([
-                        str(lg.get("timestamp") or "")[:19],
-                        bd.get("mode", "adaptive"),
-                        lg.get("image_title") or "Unknown",
-                        lg.get("image_mood") or "",
-                        lg.get("time_period") or "",
-                        lg.get("detected_mood") or "",
-                        f"{lg.get('selection_score', 0):.3f}",
-                        f"{bd.get('time', 0):.3f}",
-                        f"{bd.get('mood', 0):.3f}",
-                        f"{bd.get('preference', 0):.3f}",
-                        f"{bd.get('quality', 0):.3f}",
-                        f"{bd.get('recency', 0):.3f}",
-                        f"{bd.get('interaction', 0):.3f}",
-                        "yes" if lg.get("was_override") else "no",
-                    ])
-                st.download_button(
-                    "\u2913 Export All Logs (CSV)",
-                    data=buf.getvalue(),
-                    file_name="chronos_context_logs.csv",
-                    mime="text/csv",
-                    use_container_width=True,
-                )
+            st.download_button(
+                "\u2913 Export All Logs (CSV)",
+                data=buf.getvalue(),
+                file_name="chronos_context_logs.csv",
+                mime="text/csv",
+                use_container_width=True,
+            )
 
 
 # =============================================================================
@@ -1799,10 +1798,10 @@ def main() -> None:
     render_reasoning_overlay(result)
 
     # ── Sidebar ───────────────────────────────────────────────────────────
-    try:
-        render_sidebar(context, result, user_id=user_id, profile_type=profile_type)
-    except RuntimeError as _db_err:
-        with st.sidebar:
+    with st.sidebar:
+        try:
+            render_sidebar(context, result, user_id=user_id, profile_type=profile_type)
+        except RuntimeError as _db_err:
             st.warning(f"Database temporarily unavailable: {_db_err}")
 
     # ── Empty state ───────────────────────────────────────────────────────
