@@ -1,0 +1,74 @@
+CHRONOS — Account Type Differences
+====================================
+
+STANDARD
+--------
+- Frosted Obsidian theme: dark background, purple/gold accents, rounded corners
+- Full mood selection: calm, energetic, joyful, melancholic, mysterious, neutral
+- AI-driven ambient image selection with Like/Skip feedback
+- Manual Override with Prev/Next navigation
+- Image upload, URL import, re-analysis
+- Image Library with search, filter, bulk delete, bulk re-analyse
+- Gallery View with one-click Display
+- Image Scheduling (date range + time-of-day window)
+- Quick Presets + custom preset save/delete
+- Analytics: Interactions, Mood Trends (30 days), Usage Patterns
+- AI Analysis Settings (depth, focus areas, custom prompt)
+- Recent History with CSV export
+- Toast notifications for all sidebar actions
+
+
+PROFESSIONAL
+------------
+Everything in Standard, plus:
+
+Theme
+- Emerald (#34d399) accent throughout — buttons, sliders, borders, score bar
+- JetBrains Mono monospace font on reasoning overlay, tag chips, and widget labels
+- Sharp 4–6px corners (vs Standard's 8–18px)
+- No glow effects — clean, structured dashboard aesthetic
+- "◈ Professional" badge fixed bottom-right
+
+Mood Schedule (exclusive)
+- Pin a specific mood to each time period: dawn, morning, afternoon, evening, night
+- Pinned mood takes priority over the global Preferred Mood setting
+- "Auto" option defers back to the global preference for any period
+- Stored per-user; takes effect immediately on the next image selection
+
+Scoring Weights (exclusive)
+- Fine-tune the five AI scoring factors independently via sliders:
+    Time Match, Mood Match, Preference, Image Quality, Recency Penalty
+- Live total-weight indicator (green = ~1.0, amber = off-balance)
+- Replaces the low/medium/high sensitivity presets when saved
+- Save / Reset buttons; weights persist across sessions
+
+Extended Analytics (exclusive)
+- Mood Trends: configurable time window — 7, 30, 60, or 90 days (scoped to your data)
+- Display Stats: ranked list + bar chart of images by AI selection count
+- Score Trend: daily average AI confidence score as a line chart with decision count summary
+
+
+KIDS
+----
+Everything in Standard, minus restricted content, plus safety enforcement:
+
+Theme
+- Sky Blue (#38bdf8) accent throughout — buttons, sliders, borders, score bar
+- Softer 14–24px corners — friendlier, rounder feel
+- "★ Kids Mode" badge fixed bottom-right
+
+Mood Restrictions (enforced)
+- Melancholic and Mysterious moods removed from the Preferred Mood selector
+- If the time of day maps to a blocked mood, engine overrides it to Joyful
+- Toast notification shown when a mood override occurs
+
+Content Filter (enforced at engine level)
+- Images with a blocked primary mood (melancholic, mysterious) are hidden
+- Images with blocked AI tags are hidden:
+    dark, gloomy, noir, dramatic, horror, violent, scary, eerie,
+    sinister, disturbing, unsettling, provocative, moody, complex
+- Images with safe tags receive a score boost:
+    bright, cartoon, nature, colorful, playful, animal, fun, cheerful,
+    sunshine, friendly, whimsical, landscape, flower, garden, ocean, sky, rainbow
+- If the filter removes all candidates, engine falls back to calm/joyful/energetic images only
+- Toast notification (🔒) shown each time images are hidden or mood is overridden
