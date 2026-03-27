@@ -825,11 +825,13 @@ def _run_analysis(image_id: str, source_url: str):
         return r
 
 
+@st.fragment
 def render_sidebar(context: dict, result, user_id: str = "", profile_type: str = "Standard") -> None:
     """
     Renders the Control Dashboard in the Streamlit sidebar.
-    Handles: mood selection, sensitivity, override toggle, image upload,
-             AI analysis trigger, and recent history.
+    Decorated with @st.fragment so sidebar interactions rerun only this
+    function, leaving the main display untouched unless a full rerun is
+    explicitly triggered (image changes, override, Like/Skip, Refresh).
     """
     prefs = cached_get_preferences(user_id=user_id)
 
@@ -1033,8 +1035,8 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
             preset_name = st.text_input("Preset name", key="new_preset_name")
             if preset_name and st.button("Save Preset", key="save_preset_btn"):
                 save_preset(preset_name, new_mood, new_sens)
+                cached_get_presets.clear()
                 st.toast(f"Preset '{preset_name}' saved!")
-                st.rerun()
             # Delete custom presets
             custom = [p for p in presets if not p.get("is_default")]
             if custom:
@@ -1042,8 +1044,8 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                 for p in custom:
                     if st.button(f"\u2715 {p['name']}", key=f"delpreset_{p['id']}"):
                         delete_preset(p["id"])
+                        cached_get_presets.clear()
                         st.toast(f"Deleted preset '{p['name']}'")
-                        st.rerun()
 
         # ── Pro: Mood Schedule ────────────────────────────────────────────
         if profile_type == "Professional":
@@ -1078,9 +1080,8 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                 if st.button("Save Schedule", use_container_width=True, key="save_mood_schedule"):
                     try:
                         update_preferences(user_id, time_mood_map=_new_map)
+                        cached_get_preferences.clear()
                         st.toast("Mood schedule saved")
-                        st.session_state["_force_refresh"] = True
-                        st.rerun()
                     except Exception as e:
                         st.toast(f"Failed to save schedule: {e}", icon="\U0001F6A8")
 
@@ -1114,9 +1115,8 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                                 "recency": _w_rec,
                             }
                             update_preferences(user_id, time_mood_map=_map_upd, recency_weight=_w_rec)
+                            cached_get_preferences.clear()
                             st.toast("Scoring weights saved")
-                            st.session_state["_force_refresh"] = True
-                            st.rerun()
                         except Exception as e:
                             st.toast(f"Failed: {e}", icon="\U0001F6A8")
                 with _wc2:
@@ -1124,9 +1124,8 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                         try:
                             _map_rst = {k: v for k, v in _time_map_w.items() if not k.startswith("__")}
                             update_preferences(user_id, time_mood_map=_map_rst, recency_weight=0.2)
+                            cached_get_preferences.clear()
                             st.toast("Weights reset to defaults")
-                            st.session_state["_force_refresh"] = True
-                            st.rerun()
                         except Exception as e:
                             st.toast(f"Failed: {e}", icon="\U0001F6A8")
 
@@ -1204,14 +1203,10 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                 elif r.success:
                     st.success(f"Analysed! Mood: {r.primary_mood} · Time: {r.optimal_time}")
                     _invalidate_caches()
-                    time.sleep(1)
-                    st.rerun()
                 else:
                     st.error(f"Analysis failed: {r.error_message}")
                     st.info("Image saved — you can re-analyse later.")
                     _invalidate_caches()
-                    time.sleep(1)
-                    st.rerun()
 
         # ── Add by URL ────────────────────────────────────────────────────
         with st.expander("\u2750  Add by URL", expanded=False):
@@ -1246,13 +1241,9 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                                 elif r.success:
                                     st.success(f"✅ Added! Mood: {r.primary_mood}")
                                     _invalidate_caches()
-                                    time.sleep(1)
-                                    st.rerun()
                                 else:
                                     st.warning(f"⚠️ Saved without analysis: {r.error_message}")
                                     _invalidate_caches()
-                                    time.sleep(1)
-                                    st.rerun()
                     except urllib.error.URLError as e:
                         st.error(f"Cannot access URL: {str(e)[:100]}")
                     except urllib.error.HTTPError as e:
@@ -1306,11 +1297,9 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                 with sa_col:
                     if st.button("Select All", key="sel_all", use_container_width=True):
                         st.session_state.selected_ids = {img["id"] for img in images}
-                        st.rerun()
                 with da_col:
                     if st.button("Deselect All", key="desel_all", use_container_width=True):
                         st.session_state.selected_ids = set()
-                        st.rerun()
 
                 # Image list with checkboxes
                 for img in images:
@@ -1351,7 +1340,6 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                                         else:
                                             st.toast(f"Analysis failed: {r.error_message[:60]}", icon="🚨")
                                         _invalidate_caches()
-                                        st.rerun()
                         with btn_cols[1]:
                             if st.button("\u2715", key=f"del_{img['id']}", help="Remove"):
                                 try:
@@ -1359,7 +1347,6 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                                     st.session_state.selected_ids.discard(img["id"])
                                     st.toast(f"Removed: {img.get('title') or 'Image'}")
                                     _invalidate_caches()
-                                    st.rerun()
                                 except Exception as e:
                                     st.toast(f"Failed to remove image: {e}", icon="🚨")
 
@@ -1376,7 +1363,6 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                         if not st.session_state.confirm_bulk_delete:
                             if st.button("Delete Selected", key="bulk_del", use_container_width=True):
                                 st.session_state.confirm_bulk_delete = True
-                                st.rerun()
                         else:
                             st.error(f"Delete {len(selected)} images?")
                             c1, c2 = st.columns(2)
@@ -1387,11 +1373,9 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                                     st.session_state.confirm_bulk_delete = False
                                     _invalidate_caches()
                                     st.toast(f"Deleted {len(selected)} images")
-                                    st.rerun()
                             with c2:
                                 if st.button("Cancel", key="cancel_del"):
                                     st.session_state.confirm_bulk_delete = False
-                                    st.rerun()
 
                     with b2:
                         if st.button("Re-analyse Selected", key="bulk_re", use_container_width=True):
@@ -1405,7 +1389,6 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                             _invalidate_caches()
                             st.toast(f"Re-analysed {len(sel_imgs)} images")
                             st.session_state.selected_ids = set()
-                            st.rerun()
 
         # ── Image Gallery Preview (Enhancement 3) ────────────────────────
         with st.expander("\u29C9  Gallery View", expanded=False):
@@ -1484,7 +1467,6 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                             )
                             _invalidate_caches()
                             st.toast(f"Schedule saved for {sched_target.get('title') or 'image'}")
-                            st.rerun()
                         except Exception as e:
                             st.toast(f"Failed to save schedule: {e}", icon="🚨")
 
@@ -1634,10 +1616,10 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                         analysis_focus=",".join(focus),
                         custom_prompt=custom,
                     )
+                    cached_get_display_config.clear()
                     st.toast("AI analysis settings saved")
                 except Exception as e:
                     st.toast(f"Failed to save AI settings: {e}", icon="🚨")
-                st.rerun()
 
         st.divider()
 
