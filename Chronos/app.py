@@ -119,17 +119,23 @@ def cached_score_trend(days=30, user_id=""):
 def inject_static_assets(profile_type: str = "Standard") -> None:
     """
     Injects the full CSS bundle (fonts, animations, sidebar chrome, skeleton
-    loaders, etc.) exactly once per session using a session_state guard.
+    loaders, etc.) on every rerun.
 
-    Subsequent reruns skip the ~4 KB st.markdown call entirely, eliminating
-    the browser CSS re-parse on every slider move or button click.
-    The guard key includes profile_type so a profile switch still re-injects.
+    IMPORTANT: st.markdown elements live in Streamlit's element tree. If this
+    call is skipped on a rerun, Streamlit removes the DOM node — taking the
+    entire CSS theme with it. The session_state guard pattern does NOT work for
+    st.markdown CSS. We call st.markdown on every rerun; Streamlit's virtual-DOM
+    diff skips the browser update when the content is unchanged, so there is no
+    real performance cost. _static_styles_html is @st.cache_data, ensuring the
+    string is only computed once per profile_type.
+
+    The meta-refresh is emitted here (once per rerun, fixed position in the
+    element tree) so the browser's reload timer is not reset by sidebar reruns.
     """
-    guard_key = f"_css_injected_{profile_type}"
-    if st.session_state.get(guard_key):
-        return
     st.markdown(_static_styles_html(profile_type), unsafe_allow_html=True)
-    st.session_state[guard_key] = True
+    # Emit meta-refresh at a fixed position so Streamlit's diff treats it as
+    # the same element on every rerun and the browser timer is not reset.
+    st.markdown('<meta http-equiv="refresh" content="300">', unsafe_allow_html=True)
 
 
 def update_dynamic_background(image_css_url: str, time_period: str) -> None:
@@ -137,7 +143,6 @@ def update_dynamic_background(image_css_url: str, time_period: str) -> None:
     Injects only the tiny data-carrier div that changes on every rerun.
     The crossfade engine JS reads data-url / data-brightness and drives the
     actual background layers outside Streamlit's DOM subtree.
-    Also emits the meta-refresh tag (idempotent; browsers ignore duplicates).
     """
     brightness = 0.65 if time_period == "night" else 0.85
     st.markdown(
@@ -145,7 +150,6 @@ def update_dynamic_background(image_css_url: str, time_period: str) -> None:
         f'data-brightness="{brightness}" style="display:none"></div>',
         unsafe_allow_html=True,
     )
-    st.markdown('<meta http-equiv="refresh" content="120">', unsafe_allow_html=True)
 
 
 def inject_global_css(image_css_url: str, time_period: str, profile_type: str = "Standard", animate: bool = True) -> None:
@@ -1684,7 +1688,10 @@ def _render_analytics(user_id: str, profile_type: str, prefs: dict) -> None:
                 df = pd.DataFrame(data)
                 if not df.empty and "likes" in df.columns:
                     chart_df = df.set_index("title")[["likes", "skips"]].head(10)
-                    if chart_df[["likes", "skips"]].sum().sum() > 0:
+                    # Drop columns that are all-zero — Vega-Lite produces
+                    # [Infinity, -Infinity] extent warnings for zero-only columns.
+                    chart_df = chart_df.loc[:, chart_df.max() > 0]
+                    if not chart_df.empty:
                         st.bar_chart(chart_df)
                     st.markdown("<p style='font-size:0.6rem;color:rgba(255,255,255,0.4);"
                                 "margin:8px 0 2px'>Most Liked</p>", unsafe_allow_html=True)
@@ -1712,7 +1719,10 @@ def _render_analytics(user_id: str, profile_type: str, prefs: dict) -> None:
                 if not df.empty and df["count"].sum() > 0:
                     pivot = df.pivot_table(index="date", columns="mood", values="count",
                                            fill_value=0, aggfunc="sum")
-                    if not pivot.empty and pivot.values.sum() > 0:
+                    # Drop mood columns that are all-zero to prevent Vega-Lite
+                    # infinite-extent warnings in the area chart scale binder.
+                    pivot = pivot.loc[:, pivot.max() > 0]
+                    if not pivot.empty:
                         st.area_chart(pivot)
                     else:
                         st.caption("No mood history yet.")
