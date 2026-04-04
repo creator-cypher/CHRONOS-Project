@@ -116,29 +116,42 @@ def cached_score_trend(days=30, user_id=""):
 # CSS Injection —dark theme
 # =============================================================================
 
-def inject_global_css(image_css_url: str, time_period: str, profile_type: str = "Standard", animate: bool = True) -> None:
+def inject_static_assets(profile_type: str = "Standard") -> None:
     """
-    Injects CSS into the page.
+    Injects the full CSS bundle (fonts, animations, sidebar chrome, skeleton
+    loaders, etc.) exactly once per session using a session_state guard.
 
-    Static styles (layout, animations, sidebar chrome) are cached in
-    `_static_styles_html` and only re-rendered when `profile_type` changes.
-    Only the tiny dynamic background block (image URL + brightness) is
-    injected fresh on every rerun, keeping DOM mutations minimal.
+    Subsequent reruns skip the ~4 KB st.markdown call entirely, eliminating
+    the browser CSS re-parse on every slider move or button click.
+    The guard key includes profile_type so a profile switch still re-injects.
     """
-    # Static chunk — served from cache on every rerun after the first
+    guard_key = f"_css_injected_{profile_type}"
+    if st.session_state.get(guard_key):
+        return
     st.markdown(_static_styles_html(profile_type), unsafe_allow_html=True)
+    st.session_state[guard_key] = True
 
-    # Data-carrier div — the crossfade engine JS reads these attributes and
-    # drives the actual A/B background layers outside Streamlit's DOM subtree.
+
+def update_dynamic_background(image_css_url: str, time_period: str) -> None:
+    """
+    Injects only the tiny data-carrier div that changes on every rerun.
+    The crossfade engine JS reads data-url / data-brightness and drives the
+    actual background layers outside Streamlit's DOM subtree.
+    Also emits the meta-refresh tag (idempotent; browsers ignore duplicates).
+    """
     brightness = 0.65 if time_period == "night" else 0.85
     st.markdown(
         f'<div id="chronos-bg-src" data-url="{image_css_url}" '
         f'data-brightness="{brightness}" style="display:none"></div>',
         unsafe_allow_html=True,
     )
-
-    # Auto-refresh every 2 minutes via meta tag (ambient display behaviour)
     st.markdown('<meta http-equiv="refresh" content="120">', unsafe_allow_html=True)
+
+
+def inject_global_css(image_css_url: str, time_period: str, profile_type: str = "Standard", animate: bool = True) -> None:
+    """Thin wrapper kept for call-site compatibility."""
+    inject_static_assets(profile_type)
+    update_dynamic_background(image_css_url, time_period)
 
 
 
@@ -836,6 +849,25 @@ def get_image_css_url(image: dict) -> str:
     return image.get("image_url", "") or ""
 
 
+def get_gallery_thumbnail_url(url: str, width: int = 200) -> str:
+    """
+    Return a Cloudinary thumbnail URL by injecting transformation params
+    after the /upload/ segment.  Falls back to the original URL for non-
+    Cloudinary hosts (local dev with SQLite, external URLs, etc.).
+
+    Input:  https://res.cloudinary.com/NAME/image/upload/v123/photo.webp
+    Output: https://res.cloudinary.com/NAME/image/upload/w_200,c_thumb,q_auto,f_auto/v123/photo.webp
+    """
+    if not url:
+        return url
+    marker = "/upload/"
+    idx = url.find(marker)
+    if idx == -1:
+        return url  # not a Cloudinary URL — use as-is
+    transform = f"w_{width},c_thumb,q_auto,f_auto"
+    return url[: idx + len(marker)] + transform + "/" + url[idx + len(marker) :]
+
+
 def render_status_bar(context: dict) -> None:
     """Fixed top-left ambient time indicator."""
     period = context.get("time_period", "now")
@@ -997,16 +1029,8 @@ def _process_upload_url(url: str, user_id: str, profile_type: str):
     return label, f"⚠ {label} — saved, analysis failed: {r.error_message[:50]}"
 
 
-def render_sidebar(context: dict, result, user_id: str = "", profile_type: str = "Standard") -> None:
-    """
-    Renders the Control Dashboard in the Streamlit sidebar.
-    Called inside a with st.sidebar: block from main().
-    Full reruns are kept only for image-changing actions (Like, Skip,
-    Override, Refresh, Prev/Next, Gallery Display, Preset Apply).
-    """
-    prefs = cached_get_preferences(user_id=user_id)
-
-    # ── User header + logout ─────────────────────────────────────────
+def _render_user_header(context: dict, profile_type: str) -> None:
+    """User badge, clock, sign-out button."""
     user_display = st.session_state.get("user_name", "") or st.session_state.get("username", "")
     _badge_cfg = {
         "Kids":         ("\u2605 Kids", "rgba(56,189,248,0.12)",  "rgba(56,189,248,0.25)",  "#7dd3fc"),
@@ -1022,8 +1046,7 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
             f"{_label}</span>"
         )
     st.markdown(f"""
-    <div style="display:flex;justify-content:space-between;align-items:center;
-                padding:14px 0 6px">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 0 6px">
       <div>
         <div style="font-size:0.62rem;font-weight:400;margin:0;color:rgba(255,255,255,0.65);
                     display:flex;align-items:center;flex-wrap:wrap;gap:4px">
@@ -1037,24 +1060,17 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
 
     st.divider()
 
-    # ── Header ───────────────────────────────────────────────────────
     st.markdown(f"""
     <div style="padding:4px 0 16px">
       <p style="font-size:0.5rem;letter-spacing:0.24em;text-transform:uppercase;
-                color:rgba(255,255,255,0.22);margin:0 0 12px;font-weight:700">
-        Chronos Control
-      </p>
+                color:rgba(255,255,255,0.22);margin:0 0 12px;font-weight:700">Chronos Control</p>
       <div style="display:flex;align-items:flex-end;gap:10px;margin-bottom:6px">
-        <p style="font-size:2.2rem;font-weight:200;letter-spacing:-0.03em;
-                  margin:0;line-height:1;color:#ffffff">
+        <p style="font-size:2.2rem;font-weight:200;letter-spacing:-0.03em;margin:0;line-height:1;color:#ffffff">
           {context.get('hour',0)}:{context.get('minute',0):02d}
         </p>
-        <span style="
-          display:inline-block;
-          width:7px;height:7px;border-radius:50%;
+        <span style="display:inline-block;width:7px;height:7px;border-radius:50%;
           background:#a78bfa;margin-bottom:8px;flex-shrink:0;
-          animation:systemPulse 2.6s ease-in-out infinite;
-        " title="AI active"></span>
+          animation:systemPulse 2.6s ease-in-out infinite;" title="AI active"></span>
       </div>
       <p style="font-size:0.52rem;text-transform:uppercase;letter-spacing:0.18em;
                 color:rgba(255,255,255,0.22);margin:0;font-weight:600">
@@ -1065,7 +1081,18 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
 
     st.divider()
 
-    # ── Now Displaying ────────────────────────────────────────────────
+
+def _render_playback_controls(
+    result,
+    prefs: dict,
+    user_id: str,
+    profile_type: str,
+    all_imgs: list,
+) -> None:
+    """Now-Displaying card, Like/Skip/Prev/Next, mood + sensitivity, presets,
+    Pro-only Mood Schedule + Scoring Weights, Manual Override toggle, Refresh."""
+    from logic.engine import KIDS_BLOCKED_MOODS
+
     if result:
         img = result.image
         st.markdown(f"""
@@ -1083,37 +1110,29 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
         </div>
         """, unsafe_allow_html=True)
 
-        # ── Manual Override Navigation or Standard Feedback ──────────────
         override_active = bool(prefs.get("override_active", 0))
-
         if override_active:
-            # Manual mode: show Prev/Next for sequential navigation
-            prev_col, next_col, like_col = st.columns(3)
-            all_imgs = cached_get_all_images(user_id=user_id)
+            nav_imgs = all_imgs
             if profile_type == "Kids":
                 _kids_blocked = {"melancholic", "mysterious"}
-                all_imgs = [i for i in all_imgs if i.get("primary_mood") not in _kids_blocked]
-
+                nav_imgs = [i for i in nav_imgs if i.get("primary_mood") not in _kids_blocked]
+            prev_col, next_col, like_col = st.columns(3)
             with prev_col:
-                if st.button("\u276E  Prev", key=f"prev_{img['id']}", use_container_width=True, disabled=len(all_imgs) < 2):
-                    if all_imgs and len(all_imgs) > 1:
-                        current_idx = next((i for i, im in enumerate(all_imgs) if im["id"] == img["id"]), 0)
-                        prev_idx = (current_idx - 1) % len(all_imgs)
-                        update_preferences(user_id, override_image_id=all_imgs[prev_idx]["id"])
-                        st.toast(f"← {all_imgs[prev_idx].get('title', 'Image')}")
+                if st.button("\u276E  Prev", key=f"prev_{img['id']}", use_container_width=True, disabled=len(nav_imgs) < 2):
+                    if len(nav_imgs) > 1:
+                        cur = next((i for i, im in enumerate(nav_imgs) if im["id"] == img["id"]), 0)
+                        update_preferences(user_id, override_image_id=nav_imgs[(cur - 1) % len(nav_imgs)]["id"])
+                        st.toast(f"← {nav_imgs[(cur - 1) % len(nav_imgs)].get('title', 'Image')}")
                         st.session_state["_force_refresh"] = True
                         st.rerun()
-
             with next_col:
-                if st.button("Next  \u276F", key=f"next_{img['id']}", use_container_width=True, disabled=len(all_imgs) < 2):
-                    if all_imgs and len(all_imgs) > 1:
-                        current_idx = next((i for i, im in enumerate(all_imgs) if im["id"] == img["id"]), 0)
-                        next_idx = (current_idx + 1) % len(all_imgs)
-                        update_preferences(user_id, override_image_id=all_imgs[next_idx]["id"])
-                        st.toast(f"{all_imgs[next_idx].get('title', 'Image')} →")
+                if st.button("Next  \u276F", key=f"next_{img['id']}", use_container_width=True, disabled=len(nav_imgs) < 2):
+                    if len(nav_imgs) > 1:
+                        cur = next((i for i, im in enumerate(nav_imgs) if im["id"] == img["id"]), 0)
+                        update_preferences(user_id, override_image_id=nav_imgs[(cur + 1) % len(nav_imgs)]["id"])
+                        st.toast(f"{nav_imgs[(cur + 1) % len(nav_imgs)].get('title', 'Image')} →")
                         st.session_state["_force_refresh"] = True
                         st.rerun()
-
             with like_col:
                 if st.button("\u2764  Like", key=f"like_{img['id']}", use_container_width=True):
                     save_interaction(img["id"], "like")
@@ -1121,7 +1140,6 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                     st.session_state["_force_refresh"] = True
                     st.rerun()
         else:
-            # Auto mode: standard Like/Skip feedback
             like_col, skip_col = st.columns(2)
             with like_col:
                 if st.button("\u2764  Like", key=f"like_{img['id']}", use_container_width=True):
@@ -1139,19 +1157,12 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
     st.divider()
 
     # ── Mood Preference ───────────────────────────────────────────────
-    from logic.engine import KIDS_BLOCKED_MOODS
     _all_moods = ["calm", "energetic", "joyful", "melancholic", "mysterious", "neutral"]
     MOODS = [m for m in _all_moods if profile_type != "Kids" or m not in KIDS_BLOCKED_MOODS]
     current_mood = prefs.get("preferred_mood", "calm")
-    # If current saved mood is blocked for Kids, silently fall back to calm
     if current_mood not in MOODS:
         current_mood = "calm"
-    new_mood = st.selectbox(
-        "Preferred Mood",
-        MOODS,
-        index=MOODS.index(current_mood),
-        key="mood_select",
-    )
+    new_mood = st.selectbox("Preferred Mood", MOODS, index=MOODS.index(current_mood), key="mood_select")
     if new_mood != current_mood:
         try:
             update_preferences(user_id, preferred_mood=new_mood)
@@ -1165,13 +1176,7 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
     SENS_LABELS = ["Manual", "Balanced", "Full AI"]
     current_sens = prefs.get("sensitivity", "medium")
     sens_idx     = SENS.index(current_sens) if current_sens in SENS else 1
-    new_sens_idx = st.radio(
-        "AI Sensitivity",
-        SENS_LABELS,
-        index=sens_idx,
-        key="sens_radio",
-        horizontal=True,
-    )
+    new_sens_idx = st.radio("AI Sensitivity", SENS_LABELS, index=sens_idx, key="sens_radio", horizontal=True)
     new_sens = SENS[SENS_LABELS.index(new_sens_idx)]
     if new_sens != current_sens:
         try:
@@ -1182,16 +1187,14 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
         except Exception as e:
             st.toast(f"Failed to save sensitivity: {e}", icon="🚨")
 
-    # ── Quick Presets (Enhancement 8) ─────────────────────────────────
+    # ── Quick Presets ─────────────────────────────────────────────────
     presets = cached_get_presets()
     if presets:
         preset_names = ["— Select Preset —"] + [p["name"] for p in presets]
-        # Dynamic key resets selectbox to default after each application,
-        # preventing re-application on the very next rerun.
         _pk = st.session_state.get("_preset_counter", 0)
         selected_preset = st.selectbox(
-            "Quick Presets", preset_names,
-            index=0, key=f"preset_select_{_pk}", label_visibility="collapsed",
+            "Quick Presets", preset_names, index=0,
+            key=f"preset_select_{_pk}", label_visibility="collapsed",
         )
         if selected_preset != "— Select Preset —":
             preset = next(p for p in presets if p["name"] == selected_preset)
@@ -1207,11 +1210,10 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
             save_preset(preset_name, new_mood, new_sens)
             cached_get_presets.clear()
             st.toast(f"Preset '{preset_name}' saved!")
-        # Delete custom presets
-        custom = [p for p in presets if not p.get("is_default")]
-        if custom:
+        custom_presets = [p for p in presets if not p.get("is_default")]
+        if custom_presets:
             st.caption("Delete a custom preset:")
-            for p in custom:
+            for p in custom_presets:
                 if st.button(f"\u2715 {p['name']}", key=f"delpreset_{p['id']}"):
                     delete_preset(p["id"])
                     cached_get_presets.clear()
@@ -1222,8 +1224,8 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
         with st.expander("\u29BE  Mood Schedule", expanded=False):
             st.caption("Pin a mood to each time period. Takes priority over your global preference.")
             _all_moods_pro = ["calm", "energetic", "joyful", "melancholic", "mysterious", "neutral"]
-            _periods_cfg = ["dawn", "morning", "afternoon", "evening", "night"]
-            _time_map = dict(prefs.get("time_mood_map") or {})
+            _periods_cfg   = ["dawn", "morning", "afternoon", "evening", "night"]
+            _time_map      = dict(prefs.get("time_mood_map") or {})
             _new_map: dict = {}
             for _period in _periods_cfg:
                 _c1, _c2 = st.columns([1.1, 2])
@@ -1238,13 +1240,10 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                     _cur  = _time_map.get(_period, "— Auto —")
                     if _cur not in _opts:
                         _cur = "— Auto —"
-                    _sel = st.selectbox(
-                        "", _opts, index=_opts.index(_cur),
-                        key=f"tmm_{_period}", label_visibility="collapsed",
-                    )
+                    _sel = st.selectbox("", _opts, index=_opts.index(_cur),
+                                        key=f"tmm_{_period}", label_visibility="collapsed")
                     if _sel != "— Auto —":
                         _new_map[_period] = _sel
-            # Preserve stored custom weights key
             if "__weights" in _time_map:
                 _new_map["__weights"] = _time_map["__weights"]
             if st.button("Save Schedule", use_container_width=True, key="save_mood_schedule"):
@@ -1259,9 +1258,9 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
     if profile_type == "Professional":
         with st.expander("\u29C6  Scoring Weights", expanded=False):
             st.caption("Fine-tune how each factor is weighted when the AI picks an image.")
-            _time_map_w   = dict(prefs.get("time_mood_map") or {})
-            _saved_w      = _time_map_w.get("__weights") or {}
-            _default_w    = WEIGHT_PROFILES.get(prefs.get("sensitivity", "medium"), WEIGHT_PROFILES["medium"])
+            _time_map_w = dict(prefs.get("time_mood_map") or {})
+            _saved_w    = _time_map_w.get("__weights") or {}
+            _default_w  = WEIGHT_PROFILES.get(prefs.get("sensitivity", "medium"), WEIGHT_PROFILES["medium"])
             _w_time = st.slider("Time Match",      0.0, 1.0, float(_saved_w.get("time",       _default_w["time"])),       0.05, key="pro_w_time")
             _w_mood = st.slider("Mood Match",      0.0, 1.0, float(_saved_w.get("mood",       _default_w["mood"])),       0.05, key="pro_w_mood")
             _w_pref = st.slider("Preference",      0.0, 1.0, float(_saved_w.get("preference", _default_w["preference"])), 0.05, key="pro_w_pref")
@@ -1279,11 +1278,8 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                 if st.button("Save", use_container_width=True, key="save_pro_weights"):
                     try:
                         _map_upd = {k: v for k, v in _time_map_w.items() if not k.startswith("__")}
-                        _map_upd["__weights"] = {
-                            "time": _w_time, "mood": _w_mood,
-                            "preference": _w_pref, "quality": _w_qual,
-                            "recency": _w_rec,
-                        }
+                        _map_upd["__weights"] = {"time": _w_time, "mood": _w_mood,
+                                                  "preference": _w_pref, "quality": _w_qual, "recency": _w_rec}
                         update_preferences(user_id, time_mood_map=_map_upd, recency_weight=_w_rec)
                         cached_get_preferences.clear()
                         st.toast("Scoring weights saved")
@@ -1301,7 +1297,7 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
 
     st.divider()
 
-    # ── Manual Override ───────────────────────────────────────────────
+    # ── Manual Override toggle ────────────────────────────────────────
     override_on = st.toggle(
         "Manual Override",
         value=bool(prefs.get("override_active", 0)),
@@ -1310,7 +1306,6 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
     if override_on != bool(prefs.get("override_active", 0)):
         try:
             if override_on:
-                all_imgs = cached_get_all_images(user_id=user_id)
                 if not all_imgs:
                     st.warning("No images in library. Upload one first to use Manual Override.")
                     return
@@ -1324,12 +1319,15 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
         except Exception as e:
             st.toast(f"Failed to toggle override: {e}", icon="🚨")
 
-    # ── Refresh ────────────────────────────────────────────────────────
     if st.button("\u27F3  Refresh Now", use_container_width=True):
         _invalidate_caches()
         st.rerun()
 
     st.divider()
+
+
+def _render_image_library(user_id: str, profile_type: str, all_imgs: list) -> None:
+    """Upload, Add by URL, Image Library (paginated), Gallery View, Scheduling."""
 
     # ── Upload Image ──────────────────────────────────────────────────
     with st.expander("\u2912  Upload Image", expanded=False):
@@ -1339,28 +1337,21 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
             accept_multiple_files=True,
             label_visibility="collapsed",
         )
-
         if uploaded_files and st.button("Save & Analyse All", use_container_width=True):
             total        = len(uploaded_files)
             progress_bar = st.progress(0, text=f"0 / {total} processed")
             status_box   = st.empty()
             results_log  = []
             done         = 0
-
-            # Run Cloudinary upload + Gemini analysis in parallel (I/O-bound).
-            # max_workers=4 avoids overwhelming Cloudinary / Gemini rate limits.
-            with ThreadPoolExecutor(max_workers=min(total, 4)) as pool:
-                futures = {
-                    pool.submit(_process_upload_file, f, user_id, profile_type): f.name
-                    for f in uploaded_files
-                }
+            with ThreadPoolExecutor(max_workers=min(total, 5)) as pool:
+                futures = {pool.submit(_process_upload_file, f, user_id, profile_type): f.name
+                           for f in uploaded_files}
                 for future in as_completed(futures):
                     name, line = future.result()
                     results_log.append(line)
                     done += 1
                     progress_bar.progress(done / total, text=f"{done} / {total} processed")
                     status_box.caption(f"Completed: {name}")
-
             status_box.empty()
             _invalidate_caches()
             ok  = sum(1 for ln in results_log if ln.startswith("✓"))
@@ -1370,38 +1361,30 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                 for line in results_log:
                     st.caption(line)
 
-
     # ── Add by URL ────────────────────────────────────────────────────
     with st.expander("\u2750  Add by URL", expanded=False):
         st.caption("Paste one URL per line")
         url_area = st.text_area(
             "Image URLs",
             placeholder="https://example.com/image1.jpg\nhttps://example.com/image2.png",
-            height=100,
-            label_visibility="collapsed",
-            key="url_area",
+            height=100, label_visibility="collapsed", key="url_area",
         )
-
         if url_area.strip() and st.button("Add & Analyse URLs", use_container_width=True):
-            raw_urls   = [u.strip() for u in url_area.splitlines() if u.strip()]
-            total      = len(raw_urls)
+            raw_urls = [u.strip() for u in url_area.splitlines() if u.strip()]
+            total    = len(raw_urls)
             prog_bar   = st.progress(0, text=f"0 / {total} processed")
             url_status = st.empty()
             url_log    = []
             done       = 0
-
-            with ThreadPoolExecutor(max_workers=min(total, 4)) as pool:
-                futures = {
-                    pool.submit(_process_upload_url, url, user_id, profile_type): url
-                    for url in raw_urls
-                }
+            with ThreadPoolExecutor(max_workers=min(total, 5)) as pool:
+                futures = {pool.submit(_process_upload_url, url, user_id, profile_type): url
+                           for url in raw_urls}
                 for future in as_completed(futures):
                     label, line = future.result()
                     url_log.append(line)
                     done += 1
                     prog_bar.progress(done / total, text=f"{done} / {total} processed")
                     url_status.caption(f"Completed: {label}")
-
             url_status.empty()
             _invalidate_caches()
             ok  = sum(1 for ln in url_log if ln.startswith("✓"))
@@ -1413,9 +1396,8 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
 
     st.divider()
 
-    # ── Image Library with Search & Filtering (Enhancements 1 & 2) ───
+    # ── Image Library ─────────────────────────────────────────────────
     with st.expander("\u25A6  Image Library", expanded=False):
-        # Search & Filter controls
         lib_search = st.text_input(
             "Search", placeholder="Search title or tags…",
             key="lib_search", label_visibility="collapsed",
@@ -1432,17 +1414,13 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                 key="lib_time_filter", label_visibility="collapsed",
             )
 
-        # Fetch images (filtered or all)
         has_filter = lib_search or mood_filter != "All" or time_filter != "All"
-        if has_filter:
-            images = search_images(
-                text=lib_search,
-                mood=mood_filter if mood_filter != "All" else "",
-                time_period=time_filter if time_filter != "All" else "",
-                user_id=user_id,
-            )
-        else:
-            images = cached_get_all_images(user_id=user_id)
+        images = search_images(
+            text=lib_search,
+            mood=mood_filter if mood_filter != "All" else "",
+            time_period=time_filter if time_filter != "All" else "",
+            user_id=user_id,
+        ) if has_filter else all_imgs
 
         total_images = len(images)
         st.caption(f"{total_images} image{'s' if total_images != 1 else ''}")
@@ -1450,20 +1428,18 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
         if not images:
             st.caption("No images match — upload one above.")
         else:
-            # ── Pagination ────────────────────────────────────────────
             PAGE_SIZE = 20
             if "lib_page" not in st.session_state:
                 st.session_state.lib_page = 0
-            # Reset page when filter changes
             filter_key = (lib_search, mood_filter, time_filter)
             if st.session_state.get("_lib_last_filter") != filter_key:
                 st.session_state.lib_page = 0
                 st.session_state["_lib_last_filter"] = filter_key
 
-            page_start = st.session_state.lib_page * PAGE_SIZE
-            page_end   = page_start + PAGE_SIZE
-            page_imgs  = images[page_start:page_end]
-            total_pages = max(1, -(-total_images // PAGE_SIZE))  # ceiling div
+            page_start  = st.session_state.lib_page * PAGE_SIZE
+            page_end    = page_start + PAGE_SIZE
+            page_imgs   = images[page_start:page_end]
+            total_pages = max(1, -(-total_images // PAGE_SIZE))
 
             if total_images > PAGE_SIZE:
                 pg_col1, pg_col2, pg_col3 = st.columns([1, 2, 1])
@@ -1471,12 +1447,11 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                     if st.button("◀", key="lib_prev_pg", disabled=st.session_state.lib_page == 0):
                         st.session_state.lib_page -= 1
                 with pg_col2:
-                    st.caption(f"Page {st.session_state.lib_page + 1} / {total_pages}", )
+                    st.caption(f"Page {st.session_state.lib_page + 1} / {total_pages}")
                 with pg_col3:
                     if st.button("▶", key="lib_next_pg", disabled=page_end >= total_images):
                         st.session_state.lib_page += 1
 
-            # Bulk selection controls
             if "selected_ids" not in st.session_state:
                 st.session_state.selected_ids = set()
 
@@ -1488,7 +1463,6 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                 if st.button("Deselect All", key="desel_all", use_container_width=True):
                     st.session_state.selected_ids = set()
 
-            # Image list with checkboxes (current page only)
             for img in page_imgs:
                 analyzed = bool(img.get("is_analyzed"))
                 cb_col, info_col, act_col = st.columns([0.5, 3, 1.5])
@@ -1505,7 +1479,6 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                     mood = img.get("primary_mood", "—")
                     err  = img.get("analysis_error", "")
                     if not analyzed:
-                        # Skeleton shimmer — shows while analysis is pending
                         err_icon = f' {bi("x-circle", "0.65em", "#f87171")}' if err else ""
                         st.markdown(
                             f"<p style='font-size:0.72rem;margin:0 0 4px;font-weight:300;opacity:0.6'>"
@@ -1546,7 +1519,6 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                             except Exception as e:
                                 st.toast(f"Failed to remove image: {e}", icon="🚨")
 
-            # Re-analyse Failed button
             failed_imgs = [i for i in images if not i.get("is_analyzed") or i.get("analysis_error")]
             if failed_imgs:
                 st.caption(f"{len(failed_imgs)} image{'s' if len(failed_imgs) != 1 else ''} need analysis")
@@ -1556,20 +1528,18 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                         src = fimg.get("image_url") or ""
                         if src:
                             _run_analysis(fimg["id"], src)
-                        fail_prog.progress((fi + 1) / len(failed_imgs), text=f"{fi + 1} / {len(failed_imgs)} re-analysed")
+                        fail_prog.progress((fi + 1) / len(failed_imgs),
+                                           text=f"{fi + 1} / {len(failed_imgs)} re-analysed")
                     _invalidate_caches()
                     st.toast(f"Re-analysed {len(failed_imgs)} image{'s' if len(failed_imgs) != 1 else ''}")
 
-            # Bulk action buttons
             selected = st.session_state.selected_ids
             if selected:
                 st.warning(f"{len(selected)} selected")
                 b1, b2 = st.columns(2)
-
                 with b1:
                     if "confirm_bulk_delete" not in st.session_state:
                         st.session_state.confirm_bulk_delete = False
-
                     if not st.session_state.confirm_bulk_delete:
                         if st.button("Delete Selected", key="bulk_del", use_container_width=True):
                             st.session_state.confirm_bulk_delete = True
@@ -1586,7 +1556,6 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                         with c2:
                             if st.button("Cancel", key="cancel_del"):
                                 st.session_state.confirm_bulk_delete = False
-
                 with b2:
                     if st.button("Re-analyse Selected", key="bulk_re", use_container_width=True):
                         sel_imgs = [i for i in images if i["id"] in selected]
@@ -1600,9 +1569,9 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                         st.toast(f"Re-analysed {len(sel_imgs)} images")
                         st.session_state.selected_ids = set()
 
-    # ── Image Gallery Preview (Enhancement 3) ────────────────────────
+    # ── Gallery View ──────────────────────────────────────────────────
     with st.expander("\u29C9  Gallery View", expanded=False):
-        gallery_imgs = cached_get_all_images(user_id=user_id)
+        gallery_imgs = all_imgs
         if profile_type == "Kids":
             _kids_blocked = {"melancholic", "mysterious"}
             gallery_imgs = [i for i in gallery_imgs if i.get("primary_mood") not in _kids_blocked]
@@ -1613,19 +1582,45 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                 "calm": "#60a5fa", "energetic": "#fbbf24", "joyful": "#34d399",
                 "melancholic": "#c084fc", "mysterious": "#818cf8", "neutral": "#94a3b8",
             }
+            GAL_PAGE_SIZE = 15
+            if "gal_page" not in st.session_state:
+                st.session_state.gal_page = 0
+            gal_total = len(gallery_imgs)
+            gal_total_pages = max(1, -(-gal_total // GAL_PAGE_SIZE))
+            # Clamp page in case images were deleted
+            st.session_state.gal_page = min(st.session_state.gal_page, gal_total_pages - 1)
+            gal_start = st.session_state.gal_page * GAL_PAGE_SIZE
+            gal_end   = gal_start + GAL_PAGE_SIZE
+            page_imgs = gallery_imgs[gal_start:gal_end]
+
+            if gal_total > GAL_PAGE_SIZE:
+                pg1, pg2, pg3 = st.columns([1, 2, 1])
+                with pg1:
+                    if st.button("◀", key="gal_prev_pg", disabled=st.session_state.gal_page == 0):
+                        st.session_state.gal_page -= 1
+                        st.rerun()
+                with pg2:
+                    st.caption(f"Page {st.session_state.gal_page + 1} / {gal_total_pages}  ({gal_total} images)")
+                with pg3:
+                    if st.button("▶", key="gal_next_pg", disabled=gal_end >= gal_total):
+                        st.session_state.gal_page += 1
+                        st.rerun()
+
             cols = st.columns(3)
-            for i, gimg in enumerate(gallery_imgs):
+            for i, gimg in enumerate(page_imgs):
                 with cols[i % 3]:
                     url = gimg.get("image_url", "")
                     if url:
-                        st.image(url, width=90)
-                    mood = gimg.get("primary_mood", "neutral")
-                    analyzed = bool(gimg.get("is_analyzed"))
+                        thumb_url = get_gallery_thumbnail_url(url, width=200)
+                        st.image(thumb_url, width=90)
+                    mood  = gimg.get("primary_mood", "neutral")
                     color = MOOD_COLORS.get(mood, "#94a3b8")
-                    status_icon = bi("check-circle-fill", "0.6em", color) if analyzed else bi("hourglass-split", "0.6em", "rgba(255,255,255,0.3)")
+                    s_icon = (bi("check-circle-fill", "0.6em", color)
+                              if gimg.get("is_analyzed")
+                              else bi("hourglass-split", "0.6em", "rgba(255,255,255,0.3)"))
                     st.markdown(
                         f"<p style='font-size:0.55rem;margin:0;text-align:center'>"
-                        f"<span style='color:{color}'>{status_icon} {mood}</span></p>",
+                        f"<span style='color:{color}'>{s_icon} {mood}</span></p>",
                         unsafe_allow_html=True,
                     )
                     if st.button("Display", key=f"gal_{gimg['id']}", use_container_width=True):
@@ -1636,51 +1631,45 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
 
     st.divider()
 
-    # ── Image Scheduling (Enhancement 9) ─────────────────────────────
+    # ── Image Scheduling ──────────────────────────────────────────────
     with st.expander("\u29D6  Image Scheduling", expanded=False):
-        sched_imgs = cached_get_all_images(user_id=user_id)
-        if not sched_imgs:
+        if not all_imgs:
             st.caption("No images to schedule.")
         else:
             sched_target = st.selectbox(
-                "Select image",
-                options=sched_imgs,
+                "Select image", options=all_imgs,
                 format_func=lambda x: x.get("title") or "Untitled",
-                key="sched_image_select",
-                label_visibility="collapsed",
+                key="sched_image_select", label_visibility="collapsed",
             )
             if sched_target:
-                sid = sched_target["id"]
+                sid            = sched_target["id"]
                 current_window = sched_target.get("time_window") or "any"
-
-                s_start = st.date_input("Start date", value=None, key=f"sched_s_{sid}")
-                s_end = st.date_input("End date", value=None, key=f"sched_e_{sid}")
-
-                all_periods = ["dawn", "morning", "afternoon", "evening", "night"]
+                s_start        = st.date_input("Start date", value=None, key=f"sched_s_{sid}")
+                s_end          = st.date_input("End date",   value=None, key=f"sched_e_{sid}")
+                all_periods    = ["dawn", "morning", "afternoon", "evening", "night"]
                 current_periods = all_periods if current_window == "any" else [
                     p.strip() for p in current_window.split(",") if p.strip() in all_periods
                 ]
-                s_window = st.multiselect(
-                    "Show during", all_periods,
-                    default=current_periods,
-                    key=f"sched_w_{sid}",
-                )
-
+                s_window = st.multiselect("Show during", all_periods,
+                                          default=current_periods, key=f"sched_w_{sid}")
                 if st.button("Save Schedule", key=f"sched_save_{sid}", use_container_width=True):
                     try:
-                        window_str = "any" if set(s_window) == set(all_periods) or not s_window else ",".join(s_window)
-                        update_image_schedule(
-                            sid,
-                            str(s_start) if s_start else "",
-                            str(s_end) if s_end else "",
-                            window_str,
-                        )
+                        window_str = ("any" if set(s_window) == set(all_periods) or not s_window
+                                      else ",".join(s_window))
+                        update_image_schedule(sid,
+                                              str(s_start) if s_start else "",
+                                              str(s_end)   if s_end   else "",
+                                              window_str)
                         _invalidate_caches()
                         st.toast(f"Schedule saved for {sched_target.get('title') or 'image'}")
                     except Exception as e:
                         st.toast(f"Failed to save schedule: {e}", icon="🚨")
 
     st.divider()
+
+
+def _render_analytics(user_id: str, profile_type: str, prefs: dict) -> None:
+    """Analytics, AI Analysis Settings, Evaluation Mode, Recent History + CSV export."""
 
     # ── Analytics Dashboard ───────────────────────────────────────────
     with st.expander("\u2261  Analytics", expanded=False):
@@ -1689,7 +1678,6 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
             "View", ["Interactions", "Mood Trends", "Usage Patterns"] + _pro_views,
             key="analytics_view", label_visibility="collapsed",
         )
-
         if analytics_view == "Interactions":
             data = cached_analytics_summary(user_id=user_id)
             if data:
@@ -1702,33 +1690,32 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                                 "margin:8px 0 2px'>Most Liked</p>", unsafe_allow_html=True)
                     for _, row in df.nlargest(3, "likes").iterrows():
                         st.markdown(f"<p style='font-size:0.65rem;margin:2px 0;font-weight:300'>"
-                                    f"{bi('heart-fill', '0.65em', '#f472b6')} {row['likes']} — {row['title']}</p>",
+                                    f"{bi('heart-fill','0.65em','#f472b6')} {row['likes']} — {row['title']}</p>",
                                     unsafe_allow_html=True)
                     st.markdown("<p style='font-size:0.6rem;color:rgba(255,255,255,0.4);"
                                 "margin:8px 0 2px'>Most Skipped</p>", unsafe_allow_html=True)
                     for _, row in df.nlargest(3, "skips").iterrows():
                         st.markdown(f"<p style='font-size:0.65rem;margin:2px 0;font-weight:300'>"
-                                    f"{bi('skip-forward-fill', '0.65em', '#94a3b8')} {row['skips']} — {row['title']}</p>",
+                                    f"{bi('skip-forward-fill','0.65em','#94a3b8')} {row['skips']} — {row['title']}</p>",
                                     unsafe_allow_html=True)
             else:
                 st.caption("No interaction data yet.")
 
         elif analytics_view == "Mood Trends":
             _days_opts = {"7 days": 7, "30 days": 30, "60 days": 60, "90 days": 90}
-            _days_key  = st.selectbox("Window", list(_days_opts.keys()),
-                                      index=1, key="mood_trend_window",
-                                      label_visibility="collapsed") if profile_type == "Professional" else "30 days"
-            _days_val  = _days_opts.get(_days_key, 30) if profile_type == "Professional" else 30
-            data = cached_mood_over_time(_days_val, user_id=user_id)
+            _days_key  = (st.selectbox("Window", list(_days_opts.keys()), index=1,
+                                       key="mood_trend_window", label_visibility="collapsed")
+                          if profile_type == "Professional" else "30 days")
+            data = cached_mood_over_time(_days_opts.get(_days_key, 30), user_id=user_id)
             if data:
                 df = pd.DataFrame(data)
                 if not df.empty and df["count"].sum() > 0:
-                    pivot = df.pivot_table(
-                        index="date", columns="mood", values="count",
-                        fill_value=0, aggfunc="sum",
-                    )
+                    pivot = df.pivot_table(index="date", columns="mood", values="count",
+                                           fill_value=0, aggfunc="sum")
                     if not pivot.empty and pivot.values.sum() > 0:
                         st.area_chart(pivot)
+                    else:
+                        st.caption("No mood history yet.")
                 else:
                     st.caption("No mood history yet.")
             else:
@@ -1746,16 +1733,15 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                 st.caption("No usage data yet.")
 
         elif analytics_view == "Display Stats":
-            # Pro only — top images by how many times the AI selected them
             data = cached_top_images_by_display(user_id=user_id, limit=10)
             if data:
                 df = pd.DataFrame(data)
-                if not df.empty and df["display_count"].sum() > 0:
-                    st.bar_chart(df.set_index("title")["display_count"])
                 MOOD_COLORS = {
                     "calm": "#60a5fa", "energetic": "#fbbf24", "joyful": "#34d399",
                     "melancholic": "#c084fc", "mysterious": "#818cf8", "neutral": "#94a3b8",
                 }
+                if not df.empty and df["display_count"].sum() > 0:
+                    st.bar_chart(df.set_index("title")["display_count"])
                 for _, row in df.iterrows():
                     mood_c = MOOD_COLORS.get(row["primary_mood"], "#94a3b8")
                     st.markdown(
@@ -1763,30 +1749,25 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                         f"align-items:center;margin:3px 0'>"
                         f"<span style='font-size:0.65rem;font-weight:300'>{row['title']}</span>"
                         f"<span style='font-size:0.60rem;color:{mood_c}'>"
-                        f"{row['display_count']} &nbsp;{bi('display', '0.65em', mood_c)}</span>"
-                        f"</div>",
+                        f"{row['display_count']} &nbsp;{bi('display','0.65em',mood_c)}</span></div>",
                         unsafe_allow_html=True,
                     )
             else:
                 st.caption("No display data yet.")
 
         elif analytics_view == "Score Trend":
-            # Pro only — AI confidence over time
             _st_opts = {"7 days": 7, "30 days": 30, "60 days": 60, "90 days": 90}
-            _st_key  = st.selectbox("Window", list(_st_opts.keys()),
-                                    index=1, key="score_trend_window",
-                                    label_visibility="collapsed")
-            _st_days = _st_opts.get(_st_key, 30)
-            data = cached_score_trend(_st_days, user_id=user_id)
+            _st_key  = st.selectbox("Window", list(_st_opts.keys()), index=1,
+                                    key="score_trend_window", label_visibility="collapsed")
+            data = cached_score_trend(_st_opts.get(_st_key, 30), user_id=user_id)
             if data:
                 df = pd.DataFrame(data)
                 if not df.empty and df["avg_score"].sum() > 0:
                     st.line_chart(df.set_index("date")["avg_score"])
-                    _avg = df["avg_score"].mean()
-                    _tot = df["decisions"].sum()
                     st.markdown(
                         f"<div style='font-size:0.60rem;color:rgba(255,255,255,0.4);margin-top:4px'>"
-                        f"Avg confidence: {_avg:.1%} &nbsp;·&nbsp; {_tot} decisions</div>",
+                        f"Avg confidence: {df['avg_score'].mean():.1%} &nbsp;·&nbsp; "
+                        f"{df['decisions'].sum()} decisions</div>",
                         unsafe_allow_html=True,
                     )
                 else:
@@ -1794,38 +1775,28 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
             else:
                 st.caption("No score data yet.")
 
-    # ── AI Analysis Settings (Enhancement 10) ────────────────────────
+    # ── AI Analysis Settings ──────────────────────────────────────────
     with st.expander("\u2699  AI Analysis Settings", expanded=False):
         config = cached_get_display_config()
-
-        depth = st.radio(
-            "Analysis Depth",
-            ["Quick", "Standard"],
+        depth  = st.radio(
+            "Analysis Depth", ["Quick", "Standard"],
             index=0 if config.get("analysis_depth") == "quick" else 1,
-            key="analysis_depth_radio",
-            horizontal=True,
+            key="analysis_depth_radio", horizontal=True,
         )
-
-        focus_options = ["composition", "color_palette", "emotional_depth",
-                         "lighting", "texture", "symbolism"]
-        current_focus = [f for f in config.get("analysis_focus", "").split(",") if f in focus_options]
-        focus = st.multiselect("Focus Areas", focus_options, default=current_focus, key="analysis_focus_ms")
-
+        focus_options  = ["composition", "color_palette", "emotional_depth",
+                          "lighting", "texture", "symbolism"]
+        current_focus  = [f for f in config.get("analysis_focus", "").split(",") if f in focus_options]
+        focus  = st.multiselect("Focus Areas", focus_options, default=current_focus, key="analysis_focus_ms")
         custom = st.text_area(
-            "Custom Instructions",
-            value=config.get("custom_prompt", ""),
+            "Custom Instructions", value=config.get("custom_prompt", ""),
             placeholder="e.g. Pay attention to architectural elements",
-            key="custom_prompt_ta",
-            height=68,
+            key="custom_prompt_ta", height=68,
         )
-
         if st.button("Save AI Settings", use_container_width=True, key="save_ai_settings"):
             try:
-                update_display_config(
-                    analysis_depth=depth.lower(),
-                    analysis_focus=",".join(focus),
-                    custom_prompt=custom,
-                )
+                update_display_config(analysis_depth=depth.lower(),
+                                      analysis_focus=",".join(focus),
+                                      custom_prompt=custom)
                 cached_get_display_config.clear()
                 st.toast("AI analysis settings saved")
             except Exception as e:
@@ -1833,23 +1804,21 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
 
     st.divider()
 
-    # ── Evaluation: Static Baseline Mode ──────────────────────────────
+    # ── Evaluation Mode ───────────────────────────────────────────────
     with st.expander("⚗  Evaluation Mode", expanded=False):
         st.caption("For academic comparison only. Switches AI scoring off — images cycle by round-robin regardless of context.")
-        # Initialise session state from DB on first load only
         if "baseline_toggle" not in st.session_state:
             st.session_state["baseline_toggle"] = bool(prefs.get("baseline_mode", 0))
         new_baseline = st.toggle("Static Baseline (no AI)", key="baseline_toggle")
-        baseline_on = bool(prefs.get("baseline_mode", 0))
+        baseline_on  = bool(prefs.get("baseline_mode", 0))
         if new_baseline != baseline_on:
             update_preferences(user_id, baseline_mode=1 if new_baseline else 0)
-            mode_label = "Static baseline ON — round-robin active" if new_baseline else "Adaptive AI restored"
-            st.toast(mode_label)
+            st.toast("Static baseline ON — round-robin active" if new_baseline else "Adaptive AI restored")
             cached_get_preferences.clear()
 
     st.divider()
 
-    # ── Recent History ─────────────────────────────────────────────────
+    # ── Recent History ────────────────────────────────────────────────
     with st.expander("\u2630  Recent History", expanded=False):
         logs = get_recent_logs(limit=8, user_id=user_id)
         if not logs:
@@ -1857,9 +1826,9 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
         for log in logs:
             score = int((log.get("selection_score") or 0) * 100)
             title = log.get("image_title") or "Unknown"
-            _ts   = log.get("timestamp") or ""
-            ts    = str(_ts)[:16] if _ts else ""
-            override_badge = f" {bi('arrow-repeat', '0.6em', 'rgba(255,255,255,0.5)')}" if log.get("was_override") else ""
+            ts    = str(log.get("timestamp") or "")[:16]
+            override_badge = (f" {bi('arrow-repeat','0.6em','rgba(255,255,255,0.5)')}"
+                              if log.get("was_override") else "")
             st.markdown(
                 f"<div style='margin-bottom:8px'>"
                 f"<p style='font-size:0.68rem;margin:0;font-weight:300'>{title}{override_badge}</p>"
@@ -1868,17 +1837,14 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                 unsafe_allow_html=True,
             )
 
-        # ── Export logs as CSV ────────────────────────────────────────
         all_logs = get_recent_logs(limit=500, user_id=user_id)
         if all_logs:
-            buf = io.StringIO()
+            buf    = io.StringIO()
             writer = csv.writer(buf)
-            writer.writerow([
-                "timestamp", "selection_mode", "image", "image_mood",
-                "time_period", "detected_mood", "score",
-                "t_time", "t_mood", "t_pref",
-                "t_quality", "t_recency", "t_interaction", "override",
-            ])
+            writer.writerow(["timestamp", "selection_mode", "image", "image_mood",
+                              "time_period", "detected_mood", "score",
+                              "t_time", "t_mood", "t_pref",
+                              "t_quality", "t_recency", "t_interaction", "override"])
             for lg in all_logs:
                 bd = lg.get("score_breakdown") or {}
                 writer.writerow([
@@ -1889,21 +1855,37 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                     lg.get("time_period") or "",
                     lg.get("detected_mood") or "",
                     f"{lg.get('selection_score', 0):.3f}",
-                    f"{bd.get('time', 0):.3f}",
-                    f"{bd.get('mood', 0):.3f}",
-                    f"{bd.get('preference', 0):.3f}",
-                    f"{bd.get('quality', 0):.3f}",
-                    f"{bd.get('recency', 0):.3f}",
-                    f"{bd.get('interaction', 0):.3f}",
+                    f"{bd.get('time', 0):.3f}",       f"{bd.get('mood', 0):.3f}",
+                    f"{bd.get('preference', 0):.3f}", f"{bd.get('quality', 0):.3f}",
+                    f"{bd.get('recency', 0):.3f}",    f"{bd.get('interaction', 0):.3f}",
                     "yes" if lg.get("was_override") else "no",
                 ])
+            csv_data = buf.getvalue()
+            buf.close()
             st.download_button(
                 "\u2913 Export All Logs (CSV)",
-                data=buf.getvalue(),
+                data=csv_data,
                 file_name="chronos_context_logs.csv",
                 mime="text/csv",
                 use_container_width=True,
             )
+
+
+def render_sidebar(context: dict, result, user_id: str = "", profile_type: str = "Standard") -> None:
+    """
+    Renders the Control Dashboard in the Streamlit sidebar.
+    Called inside a `with st.sidebar:` block from main().
+
+    all_imgs is fetched exactly once here and forwarded to every sub-function
+    that needs it, eliminating redundant cache lookups across the branches.
+    """
+    prefs    = cached_get_preferences(user_id=user_id)
+    all_imgs = cached_get_all_images(user_id=user_id)
+
+    _render_user_header(context, profile_type)
+    _render_playback_controls(result, prefs, user_id, profile_type, all_imgs)
+    _render_image_library(user_id, profile_type, all_imgs)
+    _render_analytics(user_id, profile_type, prefs)
 
 
 # =============================================================================
@@ -1999,22 +1981,46 @@ def main() -> None:
         st.session_state["_last_image_url"] = css_url
 
     # ── 5. Inject CSS (static cached chunk + data-carrier div for crossfade) ─
-    inject_global_css(css_url, context.get("time_period", "day"), profile_type=profile_type, animate=_animate)
+    try:
+        inject_global_css(css_url, context.get("time_period", "day"), profile_type=profile_type, animate=_animate)
+    except Exception as _e:
+        pass  # CSS injection failure is cosmetic — continue rendering
 
     # ── Persistent JS engines (iframes survive reruns; guard against re-init)
-    inject_sidebar_fab()
-    inject_crossfade_engine()
+    try:
+        inject_sidebar_fab()
+    except Exception as _e:
+        pass  # FAB unavailable — sidebar toggle still works via native button
+
+    try:
+        inject_crossfade_engine()
+    except Exception as _e:
+        pass  # Crossfade unavailable — background updates without transition
 
     # Auto-hide timeout from display config (default 8 s; 0 = disabled)
     _config        = cached_get_display_config()
     _autohide_secs = int(_config.get("overlay_auto_hide_seconds") or 8)
     if _autohide_secs > 0:
-        inject_autohide_ui(timeout_ms=_autohide_secs * 1000)
+        try:
+            inject_autohide_ui(timeout_ms=_autohide_secs * 1000)
+        except Exception as _e:
+            pass  # Auto-hide unavailable — overlay remains visible
 
     # ── 6. Fixed UI elements (rendered as HTML, position:fixed) ───────────
-    render_status_bar(context)
-    render_reasoning_overlay(result)
-    inject_score_animator()
+    try:
+        render_status_bar(context)
+    except Exception as _e:
+        pass  # Status bar is decorative — do not crash on failure
+
+    try:
+        render_reasoning_overlay(result)
+    except Exception as _e:
+        pass  # Reasoning overlay is non-critical
+
+    try:
+        inject_score_animator()
+    except Exception as _e:
+        pass  # Score animation is cosmetic
 
     # ── Sidebar ───────────────────────────────────────────────────────────
     with st.sidebar:
