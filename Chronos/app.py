@@ -1161,93 +1161,132 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
 
     # ── Upload Image ──────────────────────────────────────────────────
     with st.expander("\u2912  Upload Image", expanded=False):
-        uploaded = st.file_uploader(
-            "Choose an image",
+        uploaded_files = st.file_uploader(
+            "Choose images (up to 10 MB each)",
             type=["jpg", "jpeg", "png", "webp"],
+            accept_multiple_files=True,
             label_visibility="collapsed",
         )
-        title = st.text_input("Title (optional)", placeholder="e.g. Misty Forest Dawn")
 
-        if uploaded and st.button("Save & Analyse", use_container_width=True):
-            with st.spinner("Uploading to Cloudinary…"):
-                cloud = cloudinary_upload(
-                    uploaded.getvalue(),
-                    filename=uploaded.name,
+        if uploaded_files and st.button("Save & Analyse All", use_container_width=True):
+            total        = len(uploaded_files)
+            progress_bar = st.progress(0, text=f"0 / {total} processed")
+            status_box   = st.empty()
+            results_log  = []
+
+            for idx, uploaded in enumerate(uploaded_files):
+                status_box.caption(f"Uploading {uploaded.name}…")
+                cloud = cloudinary_upload(uploaded.getvalue(), filename=uploaded.name)
+
+                if not cloud["success"]:
+                    results_log.append(f"✗ {uploaded.name} — upload failed: {cloud['error']}")
+                    progress_bar.progress((idx + 1) / total, text=f"{idx + 1} / {total} processed")
+                    continue
+
+                image_id = add_image(
+                    title=uploaded.name,
+                    image_url=cloud["secure_url"],
+                    user_id=user_id,
                 )
 
-            if not cloud["success"]:
-                st.error(f"Upload failed: {cloud['error']}")
-                st.stop()
-
-            image_id = add_image(
-                title=title or uploaded.name,
-                image_url=cloud["secure_url"],
-                user_id=user_id,
-            )
-
-            with st.spinner("Analysing with Gemini…"):
+                status_box.caption(f"Analysing {uploaded.name}…")
                 r = _run_analysis(image_id, cloud["secure_url"])
 
-            if not r.success and "safety filters" in r.error_message:
-                hard_delete_image(image_id)
-                cloudinary_delete(cloud.get("public_id", ""))
-                st.error("🚫 Blocked: content not permitted by safety filters. Image has not been saved.")
-                _invalidate_caches()
-            elif r.success and profile_type == "Kids" and not r.kids_safe:
-                hard_delete_image(image_id)
-                cloudinary_delete(cloud.get("public_id", ""))
-                st.error("🚫 Blocked: this image is not suitable for Kids mode and has not been saved.")
-                _invalidate_caches()
-            elif r.success:
-                st.success(f"Analysed! Mood: {r.primary_mood} · Time: {r.optimal_time}")
-                _invalidate_caches()
-            else:
-                st.error(f"Analysis failed: {r.error_message}")
-                st.info("Image saved — you can re-analyse later.")
-                _invalidate_caches()
+                if not r.success and "safety filters" in r.error_message:
+                    hard_delete_image(image_id)
+                    cloudinary_delete(cloud.get("public_id", ""))
+                    results_log.append(f"🚫 {uploaded.name} — blocked by safety filters")
+                elif r.success and profile_type == "Kids" and not r.kids_safe:
+                    hard_delete_image(image_id)
+                    cloudinary_delete(cloud.get("public_id", ""))
+                    results_log.append(f"🚫 {uploaded.name} — not suitable for Kids mode")
+                elif r.success:
+                    results_log.append(f"✓ {uploaded.name} — {r.primary_mood} · {r.optimal_time}")
+                else:
+                    results_log.append(f"⚠ {uploaded.name} — saved, analysis failed: {r.error_message[:60]}")
+
+                progress_bar.progress((idx + 1) / total, text=f"{idx + 1} / {total} processed")
+
+            status_box.empty()
+            _invalidate_caches()
+            ok  = sum(1 for ln in results_log if ln.startswith("✓"))
+            blk = sum(1 for ln in results_log if ln.startswith("🚫"))
+            st.toast(f"Done — {ok} added, {blk} blocked, {total - ok - blk} failed")
+            with st.expander("Upload report", expanded=True):
+                for line in results_log:
+                    st.caption(line)
+
 
     # ── Add by URL ────────────────────────────────────────────────────
     with st.expander("\u2750  Add by URL", expanded=False):
-        url_input  = st.text_input("Image URL", placeholder="https://…")
-        url_title  = st.text_input("Title", placeholder="e.g. Aurora Borealis", key="url_title")
-        if url_input and st.button("Add & Analyse URL", use_container_width=True):
-            # Validate URL
-            if not url_input.startswith(("http://", "https://")):
-                st.error("URL must start with http:// or https://")
-            else:
+        st.caption("Paste one URL per line")
+        url_area = st.text_area(
+            "Image URLs",
+            placeholder="https://example.com/image1.jpg\nhttps://example.com/image2.png",
+            height=100,
+            label_visibility="collapsed",
+            key="url_area",
+        )
+
+        if url_area.strip() and st.button("Add & Analyse URLs", use_container_width=True):
+            import urllib.request
+            raw_urls   = [u.strip() for u in url_area.splitlines() if u.strip()]
+            total      = len(raw_urls)
+            prog_bar   = st.progress(0, text=f"0 / {total} processed")
+            url_status = st.empty()
+            url_log    = []
+
+            for idx, url_input in enumerate(raw_urls):
+                url_status.caption(f"Checking {url_input[:60]}…")
+
+                if not url_input.startswith(("http://", "https://")):
+                    url_log.append(f"✗ {url_input[:60]} — invalid URL")
+                    prog_bar.progress((idx + 1) / total, text=f"{idx + 1} / {total} processed")
+                    continue
+
                 try:
-                    # Quick connectivity check (HEAD request with timeout)
-                    import urllib.request
                     req = urllib.request.Request(url_input, method="HEAD", headers={"User-Agent": "Mozilla/5.0"})
                     with urllib.request.urlopen(req, timeout=5) as resp:
                         content_type = resp.headers.get("Content-Type", "")
-                        if not content_type.startswith("image/"):
-                            st.error("URL does not point to an image. Check the URL and try again.")
-                        else:
-                            # URL is valid, proceed
-                            image_id = add_image(title=url_title or url_input[:40], image_url=url_input, user_id=user_id)
-                            with st.spinner("Analysing with Gemini…"):
-                                r = _run_analysis(image_id, url_input)
-                            if not r.success and "safety filters" in r.error_message:
-                                hard_delete_image(image_id)
-                                st.error("🚫 Blocked: content not permitted by safety filters. Image has not been saved.")
-                                _invalidate_caches()
-                            elif r.success and profile_type == "Kids" and not r.kids_safe:
-                                hard_delete_image(image_id)
-                                st.error("🚫 Blocked: this image is not suitable for Kids mode and has not been saved.")
-                                _invalidate_caches()
-                            elif r.success:
-                                st.success(f"✅ Added! Mood: {r.primary_mood}")
-                                _invalidate_caches()
-                            else:
-                                st.warning(f"⚠️ Saved without analysis: {r.error_message}")
-                                _invalidate_caches()
-                except urllib.error.URLError as e:
-                    st.error(f"Cannot access URL: {str(e)[:100]}")
-                except urllib.error.HTTPError as e:
-                    st.error(f"HTTP error {e.code}: {e.reason}")
+                    if not content_type.startswith("image/"):
+                        url_log.append(f"✗ {url_input[:60]} — not an image ({content_type})")
+                        prog_bar.progress((idx + 1) / total, text=f"{idx + 1} / {total} processed")
+                        continue
                 except Exception as e:
-                    st.error(f"Error: {str(e)[:100]}")
+                    url_log.append(f"✗ {url_input[:60]} — unreachable: {str(e)[:60]}")
+                    prog_bar.progress((idx + 1) / total, text=f"{idx + 1} / {total} processed")
+                    continue
+
+                image_id = add_image(
+                    title=url_input.split("/")[-1][:60] or url_input[:40],
+                    image_url=url_input,
+                    user_id=user_id,
+                )
+
+                url_status.caption(f"Analysing {url_input[:60]}…")
+                r = _run_analysis(image_id, url_input)
+
+                if not r.success and "safety filters" in r.error_message:
+                    hard_delete_image(image_id)
+                    url_log.append(f"🚫 {url_input[:60]} — blocked by safety filters")
+                elif r.success and profile_type == "Kids" and not r.kids_safe:
+                    hard_delete_image(image_id)
+                    url_log.append(f"🚫 {url_input[:60]} — not suitable for Kids mode")
+                elif r.success:
+                    url_log.append(f"✓ {url_input[:60]} — {r.primary_mood} · {r.optimal_time}")
+                else:
+                    url_log.append(f"⚠ {url_input[:60]} — saved, analysis failed: {r.error_message[:50]}")
+
+                prog_bar.progress((idx + 1) / total, text=f"{idx + 1} / {total} processed")
+
+            url_status.empty()
+            _invalidate_caches()
+            ok  = sum(1 for ln in url_log if ln.startswith("✓"))
+            blk = sum(1 for ln in url_log if ln.startswith("🚫"))
+            st.toast(f"Done — {ok} added, {blk} blocked, {total - ok - blk} failed")
+            with st.expander("URL import report", expanded=True):
+                for line in url_log:
+                    st.caption(line)
 
     st.divider()
 
@@ -1347,6 +1386,20 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                                 _invalidate_caches()
                             except Exception as e:
                                 st.toast(f"Failed to remove image: {e}", icon="🚨")
+
+            # Re-analyse Failed button
+            failed_imgs = [i for i in images if not i.get("is_analyzed") or i.get("analysis_error")]
+            if failed_imgs:
+                st.caption(f"{len(failed_imgs)} image{'s' if len(failed_imgs) != 1 else ''} need analysis")
+                if st.button("Re-analyse Failed", key="reanalyse_failed", use_container_width=True):
+                    fail_prog = st.progress(0, text=f"0 / {len(failed_imgs)} re-analysed")
+                    for fi, fimg in enumerate(failed_imgs):
+                        src = fimg.get("image_url") or ""
+                        if src:
+                            _run_analysis(fimg["id"], src)
+                        fail_prog.progress((fi + 1) / len(failed_imgs), text=f"{fi + 1} / {len(failed_imgs)} re-analysed")
+                    _invalidate_caches()
+                    st.toast(f"Re-analysed {len(failed_imgs)} image{'s' if len(failed_imgs) != 1 else ''}")
 
             # Bulk action buttons
             selected = st.session_state.selected_ids
