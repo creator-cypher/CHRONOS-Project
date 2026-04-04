@@ -128,24 +128,14 @@ def inject_global_css(image_css_url: str, time_period: str, profile_type: str = 
     # Static chunk — served from cache on every rerun after the first
     st.markdown(_static_styles_html(profile_type), unsafe_allow_html=True)
 
-    # Dynamic chunk — only what actually changes between reruns
+    # Data-carrier div — the crossfade engine JS reads these attributes and
+    # drives the actual A/B background layers outside Streamlit's DOM subtree.
     brightness = 0.65 if time_period == "night" else 0.85
-    animation  = "chronosFadeIn 0.5s ease-out forwards" if animate else "none"
-    st.markdown(f"""
-    <style>
-    #chronos-bg {{
-        position: fixed; inset: 0;
-        background-image:    url('{image_css_url}');
-        background-size:     cover;
-        background-position: center center;
-        background-repeat:   no-repeat;
-        filter:              brightness({brightness}) saturate(1.05);
-        z-index:             -1;
-        animation:           {animation};
-    }}
-    </style>
-    <div id="chronos-bg"></div>
-    """, unsafe_allow_html=True)
+    st.markdown(
+        f'<div id="chronos-bg-src" data-url="{image_css_url}" '
+        f'data-brightness="{brightness}" style="display:none"></div>',
+        unsafe_allow_html=True,
+    )
 
     # Auto-refresh every 2 minutes via meta tag (ambient display behaviour)
     st.markdown('<meta http-equiv="refresh" content="120">', unsafe_allow_html=True)
@@ -447,6 +437,56 @@ button, [role="button"], summary {{ touch-action: manipulation; }}
     .tags-row       {{ gap: 4px; }}
     .tag-chip       {{ font-size: 0.50rem; padding: 2px 6px; }}
 }}
+
+/* ── Cross-fade background layers ─────────────────────────────────────── */
+/* Created and managed by inject_crossfade_engine() JS.                    */
+/* They live on document.body so they're outside Streamlit's DOM subtree   */
+/* and survive reruns without blinking.                                     */
+.chronos-layer {{
+    position: fixed; inset: 0;
+    background-size: cover;
+    background-position: center center;
+    background-repeat: no-repeat;
+    z-index: -1;
+    transition: opacity 0.85s ease-in-out, filter 0.85s ease-in-out;
+    will-change: opacity;
+}}
+
+/* ── Auto-hide UI ─────────────────────────────────────────────────────── */
+/* Added to document.body by inject_autohide_ui() after idle timeout.      */
+.chronos-ui-idle .reasoning-card,
+.chronos-ui-idle .status-bar {{
+    opacity: 0 !important;
+    pointer-events: none !important;
+    transition: opacity 2s ease !important;
+}}
+/* Fast reveal on interaction */
+.reasoning-card, .status-bar {{
+    transition: opacity 0.25s ease;
+}}
+
+/* ── Score bar — starts at 0 width, animated via JS ─────────────────── */
+.score-fill {{
+    width: 0% !important;   /* JS sets the real value after one rAF */
+    transition: width 1.2s cubic-bezier(0.22,1,0.36,1) !important;
+}}
+
+/* ── Skeleton / shimmer loader ────────────────────────────────────────── */
+@keyframes chronosShimmer {{
+    0%   {{ background-position: -200% 0; }}
+    100% {{ background-position:  200% 0; }}
+}}
+.skeleton-line {{
+    border-radius: 4px;
+    background: linear-gradient(
+        90deg,
+        rgba(255,255,255,0.04) 0%,
+        rgba(255,255,255,0.11) 50%,
+        rgba(255,255,255,0.04) 100%
+    );
+    background-size: 200% 100%;
+    animation: chronosShimmer 1.6s ease-in-out infinite;
+}}
 </style>{theme_block}"""
 
 
@@ -576,6 +616,192 @@ def inject_sidebar_fab() -> None:
 
 
 # =============================================================================
+# Cross-fade Engine (JS injection)
+# =============================================================================
+
+def inject_crossfade_engine() -> None:
+    """
+    Injects a persistent MutationObserver that watches #chronos-bg-src for URL
+    changes and cross-fades between two background layers (A/B flip pattern).
+
+    Why this beats a CSS animation on #chronos-bg:
+    - Streamlit replaces the DOM on every rerun; a new #chronos-bg flashes in.
+    - These two layers live on document.body (outside Streamlit's DOM subtree)
+      so they survive reruns without being replaced.
+    - We only swap when the URL actually changes; same-URL reruns (sidebar
+      interactions) never trigger a transition at all.
+    """
+    import streamlit.components.v1 as _c
+    _c.html(
+        """
+        <script>
+        (function () {
+            var pd = window.parent.document;
+            if (pd.getElementById('chronos-xfade-init')) return;
+
+            /* ── One-time init marker ─────────────────────────────────── */
+            var mk = pd.createElement('span');
+            mk.id = 'chronos-xfade-init';
+            mk.style.display = 'none';
+            pd.body.appendChild(mk);
+
+            /* ── Build the two permanent background layers ────────────── */
+            function makeLayer(id) {
+                var el = pd.createElement('div');
+                el.id        = id;
+                el.className = 'chronos-layer';
+                el.style.opacity = '0';
+                pd.body.appendChild(el);
+                return el;
+            }
+            var layerA = makeLayer('chronos-layer-a');
+            var layerB = makeLayer('chronos-layer-b');
+            var front  = layerA;   /* currently visible layer */
+            var back   = layerB;   /* loading / inactive layer */
+            var lastUrl = '';
+
+            /* ── Cross-fade to new image ──────────────────────────────── */
+            function crossfade(url, brightness) {
+                if (url === lastUrl) return;   /* sidebar rerun — skip */
+                lastUrl = url;
+                var filter = 'brightness(' + brightness + ') saturate(1.05)';
+
+                /* Preload on back layer, invisible */
+                back.style.transition = 'none';
+                back.style.backgroundImage = 'url(' + url + ')';
+                back.style.filter    = filter;
+                back.style.opacity   = '0';
+                back.offsetHeight;   /* force reflow before re-enabling transition */
+
+                /* Fade in back, fade out front simultaneously */
+                back.style.transition  = 'opacity 0.85s ease-in-out, filter 0.85s ease-in-out';
+                front.style.transition = 'opacity 0.85s ease-in-out';
+                back.style.opacity  = '1';
+                front.style.opacity = '0';
+
+                /* Swap references */
+                var tmp = front; front = back; back = tmp;
+            }
+
+            /* ── Watch document.body for #chronos-bg-src appearing/changing ── */
+            var obs = new MutationObserver(function () {
+                var src = pd.getElementById('chronos-bg-src');
+                if (!src) return;
+                var url  = src.getAttribute('data-url') || '';
+                var br   = parseFloat(src.getAttribute('data-brightness')) || 0.85;
+                crossfade(url, br);
+            });
+            obs.observe(pd.body, { childList: true, subtree: true });
+
+            /* ── Also fire on initial load if element already present ─── */
+            var src0 = pd.getElementById('chronos-bg-src');
+            if (src0) crossfade(
+                src0.getAttribute('data-url') || '',
+                parseFloat(src0.getAttribute('data-brightness')) || 0.85
+            );
+        }());
+        </script>
+        """,
+        height=0,
+        scrolling=False,
+    )
+
+
+# =============================================================================
+# Auto-hide UI (JS injection)
+# =============================================================================
+
+def inject_autohide_ui(timeout_ms: int = 8000) -> None:
+    """
+    Fades out the reasoning overlay and status bar after `timeout_ms` ms of
+    inactivity (no mouse/touch/keyboard events).  Any interaction instantly
+    restores them.  The CSS class 'chronos-ui-idle' drives the fade via the
+    rules in _static_styles_html().
+    """
+    import streamlit.components.v1 as _c
+    _c.html(
+        f"""
+        <script>
+        (function () {{
+            var pd = window.parent.document;
+            if (pd.getElementById('chronos-autohide-init')) return;
+
+            var mk = pd.createElement('span');
+            mk.id = 'chronos-autohide-init';
+            mk.style.display = 'none';
+            pd.body.appendChild(mk);
+
+            var TIMEOUT = {timeout_ms};
+            var timer;
+
+            function goIdle()  {{ pd.body.classList.add('chronos-ui-idle'); }}
+            function wake()    {{
+                pd.body.classList.remove('chronos-ui-idle');
+                clearTimeout(timer);
+                timer = setTimeout(goIdle, TIMEOUT);
+            }}
+
+            ['mousemove', 'mousedown', 'touchstart', 'keydown', 'wheel', 'scroll'].forEach(function (ev) {{
+                window.parent.addEventListener(ev, wake, {{ passive: true }});
+            }});
+
+            /* Start the timer immediately */
+            timer = setTimeout(goIdle, TIMEOUT);
+        }}());
+        </script>
+        """,
+        height=0,
+        scrolling=False,
+    )
+
+
+# =============================================================================
+# Score-bar Animator (JS injection)
+# =============================================================================
+
+def inject_score_animator() -> None:
+    """
+    Animates .score-fill from 0% → data-score value, but ONLY when the score
+    value differs from the previous render (i.e. the image actually changed).
+    Same-image reruns (sidebar interactions) snap to value without transition.
+    """
+    import streamlit.components.v1 as _c
+    _c.html(
+        """
+        <script>
+        (function () {
+            var pd = window.parent.document;
+            var fill = pd.querySelector('.score-fill[data-score]');
+            if (!fill) return;
+
+            var target = fill.getAttribute('data-score');
+            var prev   = window.__chronosLastScore;
+
+            if (target !== prev) {
+                /* New image — animate from 0 to target */
+                window.__chronosLastScore = target;
+                fill.style.width = '0%';
+                requestAnimationFrame(function () {
+                    requestAnimationFrame(function () {
+                        fill.style.width = target;
+                    });
+                });
+            } else {
+                /* Same image — snap without transition so we don't re-animate */
+                fill.style.transition = 'none';
+                fill.style.width      = target;
+                fill.offsetHeight;    /* flush */
+                fill.style.transition = '';
+            }
+        }());
+        </script>
+        """,
+        height=0,
+        scrolling=False,
+    )
+
+
+# =============================================================================
 # Icon Helper — Bootstrap Icons
 # =============================================================================
 
@@ -645,6 +871,8 @@ def render_reasoning_overlay(result) -> None:
         for t in (result.matched_tags or [])[:5]
     )
 
+    # score-fill starts at width:0% (via CSS rule); inject_score_animator()
+    # transitions it to data-score only when the image actually changes.
     st.markdown(f"""
     <div class="reasoning-card glass anim-up">
       <div class="reasoning-header">
@@ -656,7 +884,7 @@ def render_reasoning_overlay(result) -> None:
       </div>
       <div class="reasoning-text">{result.reasoning_text}</div>
       <div class="score-track">
-        <div class="score-fill" style="width:{confidence}%"></div>
+        <div class="score-fill" data-score="{confidence}%"></div>
       </div>
       <div class="tags-row">{tags_html}</div>
     </div>
@@ -1275,16 +1503,25 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                         st.session_state.selected_ids.discard(img["id"])
                 with info_col:
                     mood = img.get("primary_mood", "—")
-                    tag  = f'{bi("check-circle", "0.7em", "#34d399")}' if analyzed else f'{bi("hourglass-split", "0.7em", "rgba(255,255,255,0.3)")}'
                     err  = img.get("analysis_error", "")
-                    err_badge = f" {bi('x-circle', '0.7em', '#f87171')}" if err else ""
-                    st.markdown(
-                        f"<p style='font-size:0.72rem;margin:0;font-weight:300'>"
-                        f"{tag} {img.get('title') or 'Untitled'}{err_badge}</p>"
-                        f"<p style='font-size:0.58rem;color:rgba(255,255,255,0.3);margin:0'>"
-                        f"{mood}</p>",
-                        unsafe_allow_html=True,
-                    )
+                    if not analyzed:
+                        # Skeleton shimmer — shows while analysis is pending
+                        err_icon = f' {bi("x-circle", "0.65em", "#f87171")}' if err else ""
+                        st.markdown(
+                            f"<p style='font-size:0.72rem;margin:0 0 4px;font-weight:300;opacity:0.6'>"
+                            f"{bi('hourglass-split','0.7em','rgba(255,255,255,0.3)')} "
+                            f"{img.get('title') or 'Untitled'}{err_icon}</p>"
+                            f"<div class='skeleton-line' style='height:7px;width:70%;margin-bottom:3px'></div>"
+                            f"<div class='skeleton-line' style='height:7px;width:42%'></div>",
+                            unsafe_allow_html=True,
+                        )
+                    else:
+                        st.markdown(
+                            f"<p style='font-size:0.72rem;margin:0;font-weight:300'>"
+                            f"{bi('check-circle','0.7em','#34d399')} {img.get('title') or 'Untitled'}</p>"
+                            f"<p style='font-size:0.58rem;color:rgba(255,255,255,0.3);margin:0'>{mood}</p>",
+                            unsafe_allow_html=True,
+                        )
                 with act_col:
                     btn_cols = st.columns(2)
                     with btn_cols[0]:
@@ -1761,15 +1998,23 @@ def main() -> None:
     if _animate:
         st.session_state["_last_image_url"] = css_url
 
-    # ── 5. Inject CSS (includes the background image + profile theme) ──────
+    # ── 5. Inject CSS (static cached chunk + data-carrier div for crossfade) ─
     inject_global_css(css_url, context.get("time_period", "day"), profile_type=profile_type, animate=_animate)
 
-    # ── Persistent sidebar FAB (JS-injected, immune to CSS transform issues)
+    # ── Persistent JS engines (iframes survive reruns; guard against re-init)
     inject_sidebar_fab()
+    inject_crossfade_engine()
+
+    # Auto-hide timeout from display config (default 8 s; 0 = disabled)
+    _config        = cached_get_display_config()
+    _autohide_secs = int(_config.get("overlay_auto_hide_seconds") or 8)
+    if _autohide_secs > 0:
+        inject_autohide_ui(timeout_ms=_autohide_secs * 1000)
 
     # ── 6. Fixed UI elements (rendered as HTML, position:fixed) ───────────
     render_status_bar(context)
     render_reasoning_overlay(result)
+    inject_score_animator()
 
     # ── Sidebar ───────────────────────────────────────────────────────────
     with st.sidebar:
