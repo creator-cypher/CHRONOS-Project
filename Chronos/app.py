@@ -20,6 +20,7 @@ Manual "Refresh Now" reruns the Streamlit script immediately.
 import csv
 import io
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import streamlit as st
@@ -54,12 +55,16 @@ from services.cloudinary_upload import upload_image as cloudinary_upload, delete
 from auth                       import init_auth_state, render_auth_page, logout, get_theme_overrides
 from database                   import init_database
 
-# Create tables on startup (idempotent — safe to call every run)
-# Required for SQLite (local dev); harmless on PostgreSQL (Render)
-try:
-    init_database()
-except Exception:
-    pass  # DB unavailable at import time — queries will surface the error later
+# Wrapped in cache_resource so it runs exactly once per server process,
+# not on every Streamlit rerun.
+@st.cache_resource
+def _init_database_once():
+    try:
+        init_database()
+    except Exception:
+        pass  # DB unavailable at startup — queries will surface the error later
+
+_init_database_once()
 
 # No local upload directory — images are stored on Cloudinary
 
@@ -113,458 +118,336 @@ def cached_score_trend(days=30, user_id=""):
 
 def inject_global_css(image_css_url: str, time_period: str, profile_type: str = "Standard", animate: bool = True) -> None:
     """
-    Injects all custom CSS into the Streamlit page.
+    Injects CSS into the page.
 
-    Key techniques:
-      - `#chronos-bg` fixed div → full-viewport image layer with fade-in animation.
-        CSS `transition` on `background-image` is not animatable in any browser;
-        instead we inject a fresh `<div id="chronos-bg">` on every Streamlit rerun.
-        Since Streamlit replaces the full DOM, the div is always new, which causes
-        `@keyframes chronosFadeIn` to fire from scratch — a true fade-in per image.
-      - `.stApp` is transparent; it holds only the vignette pseudo-elements.
-      - Glassmorphism via backdrop-filter + rgba backgrounds.
-      - Streamlit chrome hidden via visibility:hidden / display:none.
-      - `@keyframes` animations for the reasoning overlay and tags.
+    Static styles (layout, animations, sidebar chrome) are cached in
+    `_static_styles_html` and only re-rendered when `profile_type` changes.
+    Only the tiny dynamic background block (image URL + brightness) is
+    injected fresh on every rerun, keeping DOM mutations minimal.
     """
-    brightness = 0.65 if time_period == "night" else 0.85
+    # Static chunk — served from cache on every rerun after the first
+    st.markdown(_static_styles_html(profile_type), unsafe_allow_html=True)
 
+    # Dynamic chunk — only what actually changes between reruns
+    brightness = 0.65 if time_period == "night" else 0.85
+    animation  = "chronosFadeIn 0.5s ease-out forwards" if animate else "none"
     st.markdown(f"""
     <style>
-    /* ── Import Inter + Bootstrap Icons ───────────────────────────── */
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600&display=swap');
-    @import url('https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css');
-
-    /* ── Hide Streamlit chrome ───────────────────────────────────── */
-    #MainMenu, header, footer, .stDeployButton,
-    [data-testid="stToolbar"] {{ visibility: hidden !important; }}
-    [data-testid="stDecoration"] {{ display: none !important; }}
-    .viewerBadge_container__1QSob {{ display: none !important; }}
-
-    /* ── Global reset ────────────────────────────────────────────── */
-    *, *::before, *::after {{ box-sizing: border-box; }}
-    html, body {{
-        margin: 0; padding: 0;
-        background-color: #090909;
-        font-family: 'Inter', system-ui, sans-serif;
-        -webkit-font-smoothing: antialiased;
-        color: #f0f0f0;
-    }}
-
-    /* ── Cinematic background layer ───────────────────────────────── */
-    /* Lives on a dedicated fixed div, NOT .stApp, so the keyframe    */
-    /* animation fires cleanly on every Streamlit rerun / image swap. */
-    /* z-index: -1 sits above the canvas (#090909 on html/body) but   */
-    /* below .stApp — which MUST be transparent for this to show.     */
-    @keyframes chronosFadeIn {{
-        0%   {{ opacity: 0; transform: scale(1.012); }}
-        100% {{ opacity: 1; transform: scale(1);     }}
-    }}
-
     #chronos-bg {{
-        position: fixed;
-        inset: 0;
+        position: fixed; inset: 0;
         background-image:    url('{image_css_url}');
         background-size:     cover;
         background-position: center center;
         background-repeat:   no-repeat;
         filter:              brightness({brightness}) saturate(1.05);
         z-index:             -1;
-        animation:           {"chronosFadeIn 0.5s ease-out forwards" if animate else "none"};
+        animation:           {animation};
     }}
-
-    /* .stApp must be transparent so #chronos-bg (z-index:-1) shows through */
-    .stApp {{
-        background: transparent !important;
-        min-height: 100vh;
-    }}
-
-    /* ── Vignette overlay ─────────────────────────────────────────── */
-    .stApp::before {{
-        content: "";
-        position: fixed; inset: 0;
-        background: radial-gradient(ellipse at center, transparent 35%, rgba(0,0,0,0.72) 100%);
-        pointer-events: none;
-        z-index: 0;
-    }}
-
-    /* Bottom gradient for text readability */
-    .stApp::after {{
-        content: "";
-        position: fixed; bottom: 0; left: 0; right: 0;
-        height: 45%;
-        background: linear-gradient(to top, rgba(0,0,0,0.8) 0%, transparent 100%);
-        pointer-events: none;
-        z-index: 0;
-    }}
-
-    /* ── Main content area ────────────────────────────────────────── */
-    .main .block-container {{
-        padding: 0 !important;
-        max-width: 100% !important;
-        position: relative;
-        z-index: 1;
-    }}
-
-    /* ── Glassmorphism ─────────────────────────────────────────────── */
-    .glass {{
-        background: rgba(255,255,255,0.055) !important;
-        backdrop-filter: blur(20px) saturate(180%);
-        -webkit-backdrop-filter: blur(20px) saturate(180%);
-        border: 1px solid rgba(255,255,255,0.10) !important;
-        border-radius: 18px;
-    }}
-
-    /* ── Animations ─────────────────────────────────────────────────── */
-    @keyframes fadeInUp {{
-        from {{ opacity: 0; transform: translateY(14px); }}
-        to   {{ opacity: 1; transform: translateY(0); }}
-    }}
-    @keyframes slideRight {{
-        from {{ opacity: 0; transform: translateX(-8px); }}
-        to   {{ opacity: 1; transform: translateX(0); }}
-    }}
-    @keyframes pulseDot {{
-        0%, 100% {{ opacity: 0.5; transform: scale(1); }}
-        50%       {{ opacity: 1;   transform: scale(1.3); }}
-    }}
-    @keyframes systemPulse {{
-        0%, 100% {{ opacity: 0.35; transform: scale(1);    box-shadow: 0 0 0    0   rgba(167,139,250,0);    }}
-        50%       {{ opacity: 1;   transform: scale(1.45); box-shadow: 0 0 16px 4px rgba(167,139,250,0.55); }}
-    }}
-    /* Breathing indicator for AI recalculation in progress */
-    @keyframes breatheGlow {{
-        0%, 100% {{ background: rgba(167,139,250,0.2); box-shadow: 0 0 8px rgba(167,139,250,0.1); }}
-        50%       {{ background: rgba(167,139,250,0.4); box-shadow: 0 0 20px rgba(167,139,250,0.3); }}
-    }}
-    @keyframes glowPulse {{
-        0%   {{ box-shadow: 0 0 0   0   rgba(167,139,250,0);    border-color: rgba(255,255,255,0.09); }}
-        50%  {{ box-shadow: 0 0 14px 2px rgba(167,139,250,0.25); border-color: rgba(167,139,250,0.55); }}
-        100% {{ box-shadow: 0 0 0   0   rgba(167,139,250,0);    border-color: rgba(255,255,255,0.09); }}
-    }}
-
-    .anim-up  {{ animation: fadeInUp  0.7s cubic-bezier(0.22,1,0.36,1) forwards; }}
-    .anim-in  {{ animation: slideRight 0.5s ease forwards; }}
-
-    /* ── Top status bar ──────────────────────────────────────────────── */
-    .status-bar {{
-        position: fixed; top: 20px; left: 24px;
-        display: flex; align-items: center; gap: 10px;
-        z-index: 100;
-    }}
-    .status-dot {{
-        width: 7px; height: 7px; border-radius: 50%;
-        animation: pulseDot 2.5s ease-in-out infinite;
-    }}
-    .status-text {{
-        font-size: 0.65rem;
-        font-weight: 400;
-        letter-spacing: 0.15em;
-        text-transform: uppercase;
-        color: rgba(255,255,255,0.5);
-    }}
-
-    /* ── Reasoning overlay card ──────────────────────────────────────── */
-    .reasoning-card {{
-        position: fixed;
-        bottom: 36px;
-        left: 50%;
-        transform: translateX(-50%);
-        width: min(400px, 90vw);
-        padding: 18px 22px;
-        z-index: 50;
-        animation: fadeInUp 0.8s cubic-bezier(0.22,1,0.36,1) forwards;
-    }}
-    .reasoning-header {{
-        display: flex; justify-content: space-between; align-items: center;
-        margin-bottom: 10px;
-    }}
-    .reasoning-period {{
-        font-size: 0.62rem; font-weight: 500;
-        letter-spacing: 0.14em; text-transform: uppercase;
-        color: rgba(255,255,255,0.45);
-        display: flex; align-items: center; gap: 6px;
-    }}
-    .reasoning-score {{
-        font-size: 0.68rem; font-weight: 600;
-        color: #c4b5fd; letter-spacing: 0.05em;
-    }}
-    .reasoning-text {{
-        font-size: 0.78rem; font-weight: 300;
-        color: rgba(255,255,255,0.78);
-        line-height: 1.55; letter-spacing: 0.02em;
-        margin-bottom: 12px;
-    }}
-    .score-track {{
-        height: 3px; border-radius: 99px;
-        background: rgba(255,255,255,0.12);
-        margin-bottom: 12px; overflow: hidden;
-    }}
-    .score-fill {{
-        height: 100%; border-radius: 99px;
-        background: linear-gradient(90deg, #a78bfa, #7c3aed);
-        transition: width 1.2s cubic-bezier(0.22,1,0.36,1);
-    }}
-    .tags-row {{
-        display: flex; flex-wrap: wrap; gap: 6px;
-    }}
-    .tag-chip {{
-        padding: 3px 10px; border-radius: 999px;
-        font-size: 0.6rem; font-weight: 500;
-        letter-spacing: 0.06em; text-transform: uppercase;
-        background: rgba(167,139,250,0.14);
-        border: 1px solid rgba(167,139,250,0.28);
-        color: #c4b5fd;
-        animation: slideRight 0.4s ease forwards;
-    }}
-
-    /* ── Sidebar — Frosted Obsidian (Enhanced) ──────────────────────────── */
-    [data-testid="stSidebar"] {{
-        background:             rgba(10,10,15,0.85) !important;
-        backdrop-filter:        blur(30px) saturate(200%) contrast(110%) !important;
-        -webkit-backdrop-filter:blur(30px) saturate(200%) contrast(110%) !important;
-        border-right:           1px solid rgba(255,255,255,0.09) !important;
-        z-index:                999 !important;
-        box-shadow:             8px 0 64px rgba(0,0,0,0.8), inset -1px 0 2px rgba(255,255,255,0.04) !important;
-    }}
-
-    /* 2 px scrollbar */
-    [data-testid="stSidebar"] > div:first-child::-webkit-scrollbar {{ width: 2px; }}
-    [data-testid="stSidebar"] > div:first-child::-webkit-scrollbar-track {{ background: transparent; }}
-    [data-testid="stSidebar"] > div:first-child::-webkit-scrollbar-thumb {{
-        background: rgba(255,255,255,0.10); border-radius: 99px;
-    }}
-
-    /* Base text — specific selectors, NOT * wildcard */
-    [data-testid="stSidebar"] p,
-    [data-testid="stSidebar"] span,
-    [data-testid="stSidebar"] label,
-    [data-testid="stSidebar"] li,
-    [data-testid="stSidebar"] div {{
-        color: rgba(255,255,255,0.82) !important;
-    }}
-
-    /* Tiny-caps widget labels */
-    [data-testid="stSidebar"] .stSelectbox    label,
-    [data-testid="stSidebar"] .stSlider       label,
-    [data-testid="stSidebar"] .stRadio        label,
-    [data-testid="stSidebar"] .stSelectSlider label {{
-        font-size:      0.5rem  !important;
-        letter-spacing: 0.22em  !important;
-        text-transform: uppercase !important;
-        color:          rgba(255,255,255,0.28) !important;
-        font-weight:    700 !important;
-        margin-bottom:  5px !important;
-    }}
-
-    /* Glass dividers */
-    [data-testid="stSidebar"] hr {{
-        border:     none !important;
-        border-top: 1px solid rgba(255,255,255,0.06) !important;
-        margin:     10px 0 !important;
-    }}
-
-    /* ── Selectbox ─────────────────────────────────────────── */
-    [data-testid="stSidebar"] .stSelectbox [data-baseweb="select"] > div {{
-        background:    rgba(255,255,255,0.04) !important;
-        border:        1px solid rgba(255,255,255,0.09) !important;
-        border-radius: 8px !important;
-        min-height:    36px !important;
-        transition:    border-color 0.2s ease, box-shadow 0.2s ease !important;
-    }}
-    [data-testid="stSidebar"] .stSelectbox [data-baseweb="select"] > div:hover {{
-        border-color: rgba(167,139,250,0.50) !important;
-        box-shadow:   0 0 0 2px rgba(167,139,250,0.09), 0 0 12px rgba(167,139,250,0.10) !important;
-    }}
-    [data-testid="stSidebar"] .stSelectbox [data-baseweb="select"] * {{
-        color:      rgba(255,255,255,0.82) !important;
-        font-size:  0.74rem !important;
-        background: transparent !important;
-    }}
-    [data-testid="stSidebar"] .stSelectbox svg {{ fill: rgba(255,255,255,0.3) !important; }}
-
-    /* ── Select slider ──────────────────────────────────────── */
-    [data-testid="stSidebar"] [data-testid="stSelectSlider"] > div > div {{
-        background:    rgba(255,255,255,0.07) !important;
-        border-radius: 99px !important;
-    }}
-    [data-testid="stSidebar"] [data-testid="stSelectSlider"] [role="slider"] {{
-        background:  #a78bfa !important;
-        box-shadow:  0 0 10px rgba(167,139,250,0.55) !important;
-        border:      2px solid rgba(255,255,255,0.22) !important;
-        transition:  box-shadow 0.2s ease !important;
-    }}
-    [data-testid="stSidebar"] [data-testid="stSelectSlider"] [role="slider"]:hover {{
-        box-shadow: 0 0 18px rgba(167,139,250,0.80) !important;
-    }}
-
-    /* ── Toggle switch ──────────────────────────────────────── */
-    [data-testid="stSidebar"] [data-testid="stToggle"] label p {{
-        font-size:      0.62rem !important;
-        letter-spacing: 0.12em !important;
-        text-transform: uppercase !important;
-        color:          rgba(255,255,255,0.42) !important;
-    }}
-
-    /* ── Expanders ──────────────────────────────────────────── */
-    [data-testid="stSidebar"] [data-testid="stExpander"] {{
-        background:    rgba(255,255,255,0.022) !important;
-        border:        1px solid rgba(255,255,255,0.07) !important;
-        border-radius: 10px !important;
-        overflow:      hidden !important;
-        transition:    border-color 0.25s ease !important;
-        margin-bottom: 3px !important;
-    }}
-    [data-testid="stSidebar"] [data-testid="stExpander"]:hover {{
-        border-color: rgba(255,255,255,0.13) !important;
-    }}
-    [data-testid="stSidebar"] [data-testid="stExpander"] summary {{
-        font-size:      0.6rem !important;
-        letter-spacing: 0.14em !important;
-        text-transform: uppercase !important;
-        color:          rgba(255,255,255,0.42) !important;
-        padding:        10px 14px !important;
-        transition:     color 0.2s ease !important;
-    }}
-    [data-testid="stSidebar"] [data-testid="stExpander"] summary:hover {{
-        color: rgba(255,255,255,0.82) !important;
-    }}
-    [data-testid="stSidebar"] [data-testid="stExpander"] summary > svg {{
-        fill:   rgba(255,255,255,0.28) !important;
-        stroke: rgba(255,255,255,0.28) !important;
-        transition: fill 0.2s ease !important;
-    }}
-
-    /* ── Action buttons ─────────────────────────────────────── */
-    [data-testid="stSidebar"] .stButton > button {{
-        background:     rgba(167,139,250,0.09) !important;
-        border:         1px solid rgba(167,139,250,0.26) !important;
-        color:          #c4b5fd !important;
-        border-radius:  8px !important;
-        font-size:      0.6rem !important;
-        letter-spacing: 0.14em !important;
-        text-transform: uppercase !important;
-        font-weight:    600 !important;
-        padding:        8px 14px !important;
-        transition:     background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease !important;
-    }}
-    [data-testid="stSidebar"] .stButton > button:hover {{
-        background:   rgba(167,139,250,0.20) !important;
-        border-color: rgba(167,139,250,0.52) !important;
-        box-shadow:   0 0 14px rgba(167,139,250,0.18) !important;
-    }}
-
-    /* ── Sidebar toggle buttons — suppressed; JS FAB replaces them ──────── */
-    /* CSS-positioning these elements is unreliable: stSidebarCollapseButton  */
-    /* lives inside the sidebar whose transform animation creates a new       */
-    /* containing block for position:fixed children, so the button slides     */
-    /* off-screen with the sidebar. collapsedControl rendering also varies     */
-    /* across Streamlit versions. Solution: hide both natively, inject a      */
-    /* plain <button> directly on document.body via inject_sidebar_fab().     */
-    /* The native buttons stay in the DOM so JS can .click() them to drive    */
-    /* Streamlit's sidebar state machine.                                      */
-    [data-testid="stSidebarCollapseButton"],
-    [data-testid="collapsedControl"] {{
-        opacity:        0 !important;
-        pointer-events: none !important;
-    }}
-
-    /* Noise texture overlay — z-index below FAB to prevent visibility issues */
-    /* FAB (z-index:99999) must remain visible at all times, even with sidebar open */
-    body::after {{
-        content: "";
-        position: fixed; inset: 0;
-        background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-        opacity: 0.025;
-        pointer-events: none;
-        z-index: 10;
-        mix-blend-mode: overlay;
-    }}
-
-    /* ═══════════════════ RESPONSIVE LAYER ════════════════════════ */
-
-    /* Prevent horizontal overflow on narrow viewports */
-    html {{ overflow-x: hidden; }}
-
-    /* Dynamic viewport height — adjusts when mobile browser chrome
-       (address bar, nav bar) appears / disappears.
-       100dvh shrinks correctly; 100vh would overshoot. */
-    .stApp {{ min-height: 100dvh; }}
-
-    /* Reasoning card: keep above phone home-indicator safe area */
-    .reasoning-card {{
-        bottom: calc(36px + env(safe-area-inset-bottom, 0px));
-    }}
-
-    /* Remove 300 ms tap delay on touch devices */
-    button, [role="button"], summary {{ touch-action: manipulation; }}
-
-    /* Momentum scrolling in sidebar on iOS */
-    [data-testid="stSidebar"] > div:first-child {{
-        -webkit-overflow-scrolling: touch;
-    }}
-
-    /* ── Tablet  ≤ 900 px ───────────────────────────────────────── */
-    @media (max-width: 900px) {{
-        .status-bar     {{ top: 14px; left: 16px; }}
-        .reasoning-card {{ bottom: calc(24px + env(safe-area-inset-bottom, 0px));
-                           padding: 14px 18px; }}
-    }}
-
-    /* ── Mobile  ≤ 640 px ───────────────────────────────────────── */
-    @media (max-width: 640px) {{
-        /* Status bar: tighter position, smaller text */
-        .status-bar  {{ top: 12px; left: 12px; gap: 7px; }}
-        .status-dot  {{ width: 6px; height: 6px; }}
-        .status-text {{ font-size: 0.55rem; letter-spacing: 0.08em; }}
-
-        /* Reasoning card: stretch edge-to-edge with 12 px gutters */
-        .reasoning-card {{
-            left: 12px; right: 12px;
-            bottom: calc(12px + env(safe-area-inset-bottom, 0px));
-            width: auto; transform: none;
-            padding: 12px 14px; border-radius: 14px;
-        }}
-        .reasoning-text   {{ font-size: 0.70rem; line-height: 1.5; margin-bottom: 10px; }}
-        .reasoning-period {{ font-size: 0.56rem; }}
-        .reasoning-score  {{ font-size: 0.60rem; }}
-        .score-track      {{ margin-bottom: 10px; }}
-        .tag-chip         {{ font-size: 0.52rem; padding: 2px 8px; }}
-
-        /* Sidebar: tighter horizontal padding on overlay modal */
-        [data-testid="stSidebar"] > div:first-child {{
-            padding-left:  12px !important;
-            padding-right: 12px !important;
-        }}
-
-        /* FAB: smaller pill, safe-area-aware for notched phones.
-           !important overrides the JS inline style on mobile. */
-        #chronos-fab {{
-            top:    calc(12px + env(safe-area-inset-top,   0px)) !important;
-            right:  calc(12px + env(safe-area-inset-right, 0px)) !important;
-            width:  36px !important;
-            height: 36px !important;
-        }}
-    }}
-
-    /* ── Very small  ≤ 400 px ───────────────────────────────────── */
-    @media (max-width: 400px) {{
-        .reasoning-card {{ padding: 10px 12px; border-radius: 12px; }}
-        .reasoning-text {{ font-size: 0.65rem; }}
-        .tags-row       {{ gap: 4px; }}
-        .tag-chip       {{ font-size: 0.50rem; padding: 2px 6px; }}
-    }}
-
     </style>
     <div id="chronos-bg"></div>
     """, unsafe_allow_html=True)
 
-    # ── Profile-based theme overrides ─────────────────────────────────────
-    theme_css = get_theme_overrides(profile_type)
-    if theme_css:
-        st.markdown(f"<style>{theme_css}</style>", unsafe_allow_html=True)
-
-    # Auto-refresh every 5 minutes via meta tag (ambient display behaviour)
+    # Auto-refresh every 2 minutes via meta tag (ambient display behaviour)
     st.markdown('<meta http-equiv="refresh" content="120">', unsafe_allow_html=True)
+
+
+
+@st.cache_data
+def _static_styles_html(profile_type: str = "Standard") -> str:
+    """Returns the static page CSS as an HTML string, cached per profile_type.
+    Only the tiny dynamic background block (image URL + brightness) is
+    injected fresh on every rerun — everything else comes from here."""
+    theme_css   = get_theme_overrides(profile_type)
+    theme_block = f"<style>{theme_css}</style>" if theme_css else ""
+    return f"""<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600&display=swap');
+@import url('https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css');
+
+#MainMenu, header, footer, .stDeployButton,
+[data-testid="stToolbar"] {{ visibility: hidden !important; }}
+[data-testid="stDecoration"] {{ display: none !important; }}
+.viewerBadge_container__1QSob {{ display: none !important; }}
+
+*, *::before, *::after {{ box-sizing: border-box; }}
+html, body {{
+    margin: 0; padding: 0;
+    background-color: #090909;
+    font-family: 'Inter', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    color: #f0f0f0;
+}}
+
+@keyframes chronosFadeIn {{
+    0%   {{ opacity: 0; transform: scale(1.012); }}
+    100% {{ opacity: 1; transform: scale(1);     }}
+}}
+
+.stApp {{
+    background: transparent !important;
+    min-height: 100vh;
+}}
+
+.stApp::before {{
+    content: "";
+    position: fixed; inset: 0;
+    background: radial-gradient(ellipse at center, transparent 35%, rgba(0,0,0,0.72) 100%);
+    pointer-events: none;
+    z-index: 0;
+}}
+
+.stApp::after {{
+    content: "";
+    position: fixed; bottom: 0; left: 0; right: 0;
+    height: 45%;
+    background: linear-gradient(to top, rgba(0,0,0,0.8) 0%, transparent 100%);
+    pointer-events: none;
+    z-index: 0;
+}}
+
+.main .block-container {{
+    padding: 0 !important;
+    max-width: 100% !important;
+    position: relative;
+    z-index: 1;
+}}
+
+.glass {{
+    background: rgba(255,255,255,0.055) !important;
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border: 1px solid rgba(255,255,255,0.10) !important;
+    border-radius: 18px;
+}}
+
+@keyframes fadeInUp {{
+    from {{ opacity: 0; transform: translateY(14px); }}
+    to   {{ opacity: 1; transform: translateY(0); }}
+}}
+@keyframes slideRight {{
+    from {{ opacity: 0; transform: translateX(-8px); }}
+    to   {{ opacity: 1; transform: translateX(0); }}
+}}
+@keyframes pulseDot {{
+    0%, 100% {{ opacity: 0.5; transform: scale(1); }}
+    50%       {{ opacity: 1;   transform: scale(1.3); }}
+}}
+@keyframes systemPulse {{
+    0%, 100% {{ opacity: 0.35; transform: scale(1);    box-shadow: 0 0 0    0   rgba(167,139,250,0);    }}
+    50%       {{ opacity: 1;   transform: scale(1.45); box-shadow: 0 0 16px 4px rgba(167,139,250,0.55); }}
+}}
+@keyframes breatheGlow {{
+    0%, 100% {{ background: rgba(167,139,250,0.2); box-shadow: 0 0 8px rgba(167,139,250,0.1); }}
+    50%       {{ background: rgba(167,139,250,0.4); box-shadow: 0 0 20px rgba(167,139,250,0.3); }}
+}}
+@keyframes glowPulse {{
+    0%   {{ box-shadow: 0 0 0   0   rgba(167,139,250,0);    border-color: rgba(255,255,255,0.09); }}
+    50%  {{ box-shadow: 0 0 14px 2px rgba(167,139,250,0.25); border-color: rgba(167,139,250,0.55); }}
+    100% {{ box-shadow: 0 0 0   0   rgba(167,139,250,0);    border-color: rgba(255,255,255,0.09); }}
+}}
+
+.anim-up {{ animation: fadeInUp  0.7s cubic-bezier(0.22,1,0.36,1) forwards; }}
+.anim-in {{ animation: slideRight 0.5s ease forwards; }}
+
+.status-bar {{
+    position: fixed; top: 20px; left: 24px;
+    display: flex; align-items: center; gap: 10px;
+    z-index: 100;
+}}
+.status-dot {{
+    width: 7px; height: 7px; border-radius: 50%;
+    animation: pulseDot 2.5s ease-in-out infinite;
+}}
+.status-text {{
+    font-size: 0.65rem; font-weight: 400;
+    letter-spacing: 0.15em; text-transform: uppercase;
+    color: rgba(255,255,255,0.5);
+}}
+
+.reasoning-card {{
+    position: fixed; bottom: 36px; left: 50%;
+    transform: translateX(-50%);
+    width: min(400px, 90vw); padding: 18px 22px;
+    z-index: 50;
+    animation: fadeInUp 0.8s cubic-bezier(0.22,1,0.36,1) forwards;
+}}
+.reasoning-header {{
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 10px;
+}}
+.reasoning-period {{
+    font-size: 0.62rem; font-weight: 500;
+    letter-spacing: 0.14em; text-transform: uppercase;
+    color: rgba(255,255,255,0.45);
+    display: flex; align-items: center; gap: 6px;
+}}
+.reasoning-score {{ font-size: 0.68rem; font-weight: 600; color: #c4b5fd; letter-spacing: 0.05em; }}
+.reasoning-text {{
+    font-size: 0.78rem; font-weight: 300;
+    color: rgba(255,255,255,0.78);
+    line-height: 1.55; letter-spacing: 0.02em; margin-bottom: 12px;
+}}
+.score-track {{
+    height: 3px; border-radius: 99px;
+    background: rgba(255,255,255,0.12);
+    margin-bottom: 12px; overflow: hidden;
+}}
+.score-fill {{
+    height: 100%; border-radius: 99px;
+    background: linear-gradient(90deg, #a78bfa, #7c3aed);
+    transition: width 1.2s cubic-bezier(0.22,1,0.36,1);
+}}
+.tags-row {{ display: flex; flex-wrap: wrap; gap: 6px; }}
+.tag-chip {{
+    padding: 3px 10px; border-radius: 999px;
+    font-size: 0.6rem; font-weight: 500;
+    letter-spacing: 0.06em; text-transform: uppercase;
+    background: rgba(167,139,250,0.14);
+    border: 1px solid rgba(167,139,250,0.28);
+    color: #c4b5fd;
+    animation: slideRight 0.4s ease forwards;
+}}
+
+[data-testid="stSidebar"] {{
+    background:             rgba(10,10,15,0.85) !important;
+    backdrop-filter:        blur(30px) saturate(200%) contrast(110%) !important;
+    -webkit-backdrop-filter:blur(30px) saturate(200%) contrast(110%) !important;
+    border-right:           1px solid rgba(255,255,255,0.09) !important;
+    z-index:                999 !important;
+    box-shadow:             8px 0 64px rgba(0,0,0,0.8), inset -1px 0 2px rgba(255,255,255,0.04) !important;
+}}
+[data-testid="stSidebar"] > div:first-child::-webkit-scrollbar {{ width: 2px; }}
+[data-testid="stSidebar"] > div:first-child::-webkit-scrollbar-track {{ background: transparent; }}
+[data-testid="stSidebar"] > div:first-child::-webkit-scrollbar-thumb {{
+    background: rgba(255,255,255,0.10); border-radius: 99px;
+}}
+[data-testid="stSidebar"] p,
+[data-testid="stSidebar"] span,
+[data-testid="stSidebar"] label,
+[data-testid="stSidebar"] li,
+[data-testid="stSidebar"] div {{ color: rgba(255,255,255,0.82) !important; }}
+[data-testid="stSidebar"] .stSelectbox    label,
+[data-testid="stSidebar"] .stSlider       label,
+[data-testid="stSidebar"] .stRadio        label,
+[data-testid="stSidebar"] .stSelectSlider label {{
+    font-size: 0.5rem !important; letter-spacing: 0.22em !important;
+    text-transform: uppercase !important; color: rgba(255,255,255,0.28) !important;
+    font-weight: 700 !important; margin-bottom: 5px !important;
+}}
+[data-testid="stSidebar"] hr {{
+    border: none !important;
+    border-top: 1px solid rgba(255,255,255,0.06) !important;
+    margin: 10px 0 !important;
+}}
+[data-testid="stSidebar"] .stSelectbox [data-baseweb="select"] > div {{
+    background: rgba(255,255,255,0.04) !important;
+    border: 1px solid rgba(255,255,255,0.09) !important;
+    border-radius: 8px !important; min-height: 36px !important;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease !important;
+}}
+[data-testid="stSidebar"] .stSelectbox [data-baseweb="select"] > div:hover {{
+    border-color: rgba(167,139,250,0.50) !important;
+    box-shadow: 0 0 0 2px rgba(167,139,250,0.09), 0 0 12px rgba(167,139,250,0.10) !important;
+}}
+[data-testid="stSidebar"] .stSelectbox [data-baseweb="select"] * {{
+    color: rgba(255,255,255,0.82) !important;
+    font-size: 0.74rem !important; background: transparent !important;
+}}
+[data-testid="stSidebar"] .stSelectbox svg {{ fill: rgba(255,255,255,0.3) !important; }}
+[data-testid="stSidebar"] [data-testid="stSelectSlider"] > div > div {{
+    background: rgba(255,255,255,0.07) !important; border-radius: 99px !important;
+}}
+[data-testid="stSidebar"] [data-testid="stSelectSlider"] [role="slider"] {{
+    background: #a78bfa !important; box-shadow: 0 0 10px rgba(167,139,250,0.55) !important;
+    border: 2px solid rgba(255,255,255,0.22) !important; transition: box-shadow 0.2s ease !important;
+}}
+[data-testid="stSidebar"] [data-testid="stSelectSlider"] [role="slider"]:hover {{
+    box-shadow: 0 0 18px rgba(167,139,250,0.80) !important;
+}}
+[data-testid="stSidebar"] [data-testid="stToggle"] label p {{
+    font-size: 0.62rem !important; letter-spacing: 0.12em !important;
+    text-transform: uppercase !important; color: rgba(255,255,255,0.42) !important;
+}}
+[data-testid="stSidebar"] [data-testid="stExpander"] {{
+    background: rgba(255,255,255,0.022) !important;
+    border: 1px solid rgba(255,255,255,0.07) !important;
+    border-radius: 10px !important; overflow: hidden !important;
+    transition: border-color 0.25s ease !important; margin-bottom: 3px !important;
+}}
+[data-testid="stSidebar"] [data-testid="stExpander"]:hover {{ border-color: rgba(255,255,255,0.13) !important; }}
+[data-testid="stSidebar"] [data-testid="stExpander"] summary {{
+    font-size: 0.6rem !important; letter-spacing: 0.14em !important;
+    text-transform: uppercase !important; color: rgba(255,255,255,0.42) !important;
+    padding: 10px 14px !important; transition: color 0.2s ease !important;
+}}
+[data-testid="stSidebar"] [data-testid="stExpander"] summary:hover {{ color: rgba(255,255,255,0.82) !important; }}
+[data-testid="stSidebar"] [data-testid="stExpander"] summary > svg {{
+    fill: rgba(255,255,255,0.28) !important; stroke: rgba(255,255,255,0.28) !important;
+    transition: fill 0.2s ease !important;
+}}
+[data-testid="stSidebar"] .stButton > button {{
+    background: rgba(167,139,250,0.09) !important;
+    border: 1px solid rgba(167,139,250,0.26) !important;
+    color: #c4b5fd !important; border-radius: 8px !important;
+    font-size: 0.6rem !important; letter-spacing: 0.14em !important;
+    text-transform: uppercase !important; font-weight: 600 !important;
+    padding: 8px 14px !important;
+    transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease !important;
+}}
+[data-testid="stSidebar"] .stButton > button:hover {{
+    background: rgba(167,139,250,0.20) !important;
+    border-color: rgba(167,139,250,0.52) !important;
+    box-shadow: 0 0 14px rgba(167,139,250,0.18) !important;
+}}
+[data-testid="stSidebarCollapseButton"],
+[data-testid="collapsedControl"] {{ opacity: 0 !important; pointer-events: none !important; }}
+
+body::after {{
+    content: "";
+    position: fixed; inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    opacity: 0.025; pointer-events: none; z-index: 10; mix-blend-mode: overlay;
+}}
+
+html {{ overflow-x: hidden; }}
+.stApp {{ min-height: 100dvh; }}
+.reasoning-card {{ bottom: calc(36px + env(safe-area-inset-bottom, 0px)); }}
+button, [role="button"], summary {{ touch-action: manipulation; }}
+[data-testid="stSidebar"] > div:first-child {{ -webkit-overflow-scrolling: touch; }}
+
+@media (max-width: 900px) {{
+    .status-bar     {{ top: 14px; left: 16px; }}
+    .reasoning-card {{ bottom: calc(24px + env(safe-area-inset-bottom, 0px)); padding: 14px 18px; }}
+}}
+@media (max-width: 640px) {{
+    .status-bar  {{ top: 12px; left: 12px; gap: 7px; }}
+    .status-dot  {{ width: 6px; height: 6px; }}
+    .status-text {{ font-size: 0.55rem; letter-spacing: 0.08em; }}
+    .reasoning-card {{
+        left: 12px; right: 12px;
+        bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+        width: auto; transform: none; padding: 12px 14px; border-radius: 14px;
+    }}
+    .reasoning-text   {{ font-size: 0.70rem; line-height: 1.5; margin-bottom: 10px; }}
+    .reasoning-period {{ font-size: 0.56rem; }}
+    .reasoning-score  {{ font-size: 0.60rem; }}
+    .score-track      {{ margin-bottom: 10px; }}
+    .tag-chip         {{ font-size: 0.52rem; padding: 2px 8px; }}
+    [data-testid="stSidebar"] > div:first-child {{
+        padding-left: 12px !important; padding-right: 12px !important;
+    }}
+    #chronos-fab {{
+        top:   calc(12px + env(safe-area-inset-top,   0px)) !important;
+        right: calc(12px + env(safe-area-inset-right, 0px)) !important;
+        width: 36px !important; height: 36px !important;
+    }}
+}}
+@media (max-width: 400px) {{
+    .reasoning-card {{ padding: 10px 12px; border-radius: 12px; }}
+    .reasoning-text {{ font-size: 0.65rem; }}
+    .tags-row       {{ gap: 4px; }}
+    .tag-chip       {{ font-size: 0.50rem; padding: 2px 6px; }}
+}}
+</style>{theme_block}"""
 
 
 # =============================================================================
@@ -823,6 +706,67 @@ def _run_analysis(image_id: str, source_url: str):
     else:
         update_image_error(image_id, r.error_message, 0)
         return r
+
+
+def _process_upload_file(uploaded_file, user_id: str, profile_type: str):
+    """Worker: upload one file to Cloudinary, analyse, safety-check.
+    Safe to run in a thread — no Streamlit calls inside.
+    Returns (filename, log_line)."""
+    cloud = cloudinary_upload(uploaded_file.getvalue(), filename=uploaded_file.name)
+    if not cloud["success"]:
+        return uploaded_file.name, f"✗ {uploaded_file.name} — upload failed: {cloud['error']}"
+
+    image_id = add_image(title=uploaded_file.name, image_url=cloud["secure_url"], user_id=user_id)
+    r = _run_analysis(image_id, cloud["secure_url"])
+
+    if not r.success and "safety filters" in r.error_message:
+        hard_delete_image(image_id)
+        cloudinary_delete(cloud.get("public_id", ""))
+        return uploaded_file.name, f"🚫 {uploaded_file.name} — blocked by safety filters"
+    if r.success and profile_type == "Kids" and not r.kids_safe:
+        hard_delete_image(image_id)
+        cloudinary_delete(cloud.get("public_id", ""))
+        return uploaded_file.name, f"🚫 {uploaded_file.name} — not suitable for Kids mode"
+    if r.success:
+        return uploaded_file.name, f"✓ {uploaded_file.name} — {r.primary_mood} · {r.optimal_time}"
+    return uploaded_file.name, f"⚠ {uploaded_file.name} — saved, analysis failed: {r.error_message[:60]}"
+
+
+def _process_upload_url(url: str, user_id: str, profile_type: str):
+    """Worker: validate URL, add image, analyse, safety-check.
+    Safe to run in a thread — no Streamlit calls inside.
+    Returns (url_short, log_line)."""
+    import urllib.request
+    label = url[:60]
+
+    if not url.startswith(("http://", "https://")):
+        return label, f"✗ {label} — invalid URL"
+
+    try:
+        req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            content_type = resp.headers.get("Content-Type", "")
+        if not content_type.startswith("image/"):
+            return label, f"✗ {label} — not an image ({content_type})"
+    except Exception as e:
+        return label, f"✗ {label} — unreachable: {str(e)[:60]}"
+
+    image_id = add_image(
+        title=url.split("/")[-1][:60] or url[:40],
+        image_url=url,
+        user_id=user_id,
+    )
+    r = _run_analysis(image_id, url)
+
+    if not r.success and "safety filters" in r.error_message:
+        hard_delete_image(image_id)
+        return label, f"🚫 {label} — blocked by safety filters"
+    if r.success and profile_type == "Kids" and not r.kids_safe:
+        hard_delete_image(image_id)
+        return label, f"🚫 {label} — not suitable for Kids mode"
+    if r.success:
+        return label, f"✓ {label} — {r.primary_mood} · {r.optimal_time}"
+    return label, f"⚠ {label} — saved, analysis failed: {r.error_message[:50]}"
 
 
 def render_sidebar(context: dict, result, user_id: str = "", profile_type: str = "Standard") -> None:
@@ -1173,39 +1117,21 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
             progress_bar = st.progress(0, text=f"0 / {total} processed")
             status_box   = st.empty()
             results_log  = []
+            done         = 0
 
-            for idx, uploaded in enumerate(uploaded_files):
-                status_box.caption(f"Uploading {uploaded.name}…")
-                cloud = cloudinary_upload(uploaded.getvalue(), filename=uploaded.name)
-
-                if not cloud["success"]:
-                    results_log.append(f"✗ {uploaded.name} — upload failed: {cloud['error']}")
-                    progress_bar.progress((idx + 1) / total, text=f"{idx + 1} / {total} processed")
-                    continue
-
-                image_id = add_image(
-                    title=uploaded.name,
-                    image_url=cloud["secure_url"],
-                    user_id=user_id,
-                )
-
-                status_box.caption(f"Analysing {uploaded.name}…")
-                r = _run_analysis(image_id, cloud["secure_url"])
-
-                if not r.success and "safety filters" in r.error_message:
-                    hard_delete_image(image_id)
-                    cloudinary_delete(cloud.get("public_id", ""))
-                    results_log.append(f"🚫 {uploaded.name} — blocked by safety filters")
-                elif r.success and profile_type == "Kids" and not r.kids_safe:
-                    hard_delete_image(image_id)
-                    cloudinary_delete(cloud.get("public_id", ""))
-                    results_log.append(f"🚫 {uploaded.name} — not suitable for Kids mode")
-                elif r.success:
-                    results_log.append(f"✓ {uploaded.name} — {r.primary_mood} · {r.optimal_time}")
-                else:
-                    results_log.append(f"⚠ {uploaded.name} — saved, analysis failed: {r.error_message[:60]}")
-
-                progress_bar.progress((idx + 1) / total, text=f"{idx + 1} / {total} processed")
+            # Run Cloudinary upload + Gemini analysis in parallel (I/O-bound).
+            # max_workers=4 avoids overwhelming Cloudinary / Gemini rate limits.
+            with ThreadPoolExecutor(max_workers=min(total, 4)) as pool:
+                futures = {
+                    pool.submit(_process_upload_file, f, user_id, profile_type): f.name
+                    for f in uploaded_files
+                }
+                for future in as_completed(futures):
+                    name, line = future.result()
+                    results_log.append(line)
+                    done += 1
+                    progress_bar.progress(done / total, text=f"{done} / {total} processed")
+                    status_box.caption(f"Completed: {name}")
 
             status_box.empty()
             _invalidate_caches()
@@ -1229,55 +1155,24 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
         )
 
         if url_area.strip() and st.button("Add & Analyse URLs", use_container_width=True):
-            import urllib.request
             raw_urls   = [u.strip() for u in url_area.splitlines() if u.strip()]
             total      = len(raw_urls)
             prog_bar   = st.progress(0, text=f"0 / {total} processed")
             url_status = st.empty()
             url_log    = []
+            done       = 0
 
-            for idx, url_input in enumerate(raw_urls):
-                url_status.caption(f"Checking {url_input[:60]}…")
-
-                if not url_input.startswith(("http://", "https://")):
-                    url_log.append(f"✗ {url_input[:60]} — invalid URL")
-                    prog_bar.progress((idx + 1) / total, text=f"{idx + 1} / {total} processed")
-                    continue
-
-                try:
-                    req = urllib.request.Request(url_input, method="HEAD", headers={"User-Agent": "Mozilla/5.0"})
-                    with urllib.request.urlopen(req, timeout=5) as resp:
-                        content_type = resp.headers.get("Content-Type", "")
-                    if not content_type.startswith("image/"):
-                        url_log.append(f"✗ {url_input[:60]} — not an image ({content_type})")
-                        prog_bar.progress((idx + 1) / total, text=f"{idx + 1} / {total} processed")
-                        continue
-                except Exception as e:
-                    url_log.append(f"✗ {url_input[:60]} — unreachable: {str(e)[:60]}")
-                    prog_bar.progress((idx + 1) / total, text=f"{idx + 1} / {total} processed")
-                    continue
-
-                image_id = add_image(
-                    title=url_input.split("/")[-1][:60] or url_input[:40],
-                    image_url=url_input,
-                    user_id=user_id,
-                )
-
-                url_status.caption(f"Analysing {url_input[:60]}…")
-                r = _run_analysis(image_id, url_input)
-
-                if not r.success and "safety filters" in r.error_message:
-                    hard_delete_image(image_id)
-                    url_log.append(f"🚫 {url_input[:60]} — blocked by safety filters")
-                elif r.success and profile_type == "Kids" and not r.kids_safe:
-                    hard_delete_image(image_id)
-                    url_log.append(f"🚫 {url_input[:60]} — not suitable for Kids mode")
-                elif r.success:
-                    url_log.append(f"✓ {url_input[:60]} — {r.primary_mood} · {r.optimal_time}")
-                else:
-                    url_log.append(f"⚠ {url_input[:60]} — saved, analysis failed: {r.error_message[:50]}")
-
-                prog_bar.progress((idx + 1) / total, text=f"{idx + 1} / {total} processed")
+            with ThreadPoolExecutor(max_workers=min(total, 4)) as pool:
+                futures = {
+                    pool.submit(_process_upload_url, url, user_id, profile_type): url
+                    for url in raw_urls
+                }
+                for future in as_completed(futures):
+                    label, line = future.result()
+                    url_log.append(line)
+                    done += 1
+                    prog_bar.progress(done / total, text=f"{done} / {total} processed")
+                    url_status.caption(f"Completed: {label}")
 
             url_status.empty()
             _invalidate_caches()
@@ -1321,11 +1216,38 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
         else:
             images = cached_get_all_images(user_id=user_id)
 
-        st.caption(f"{len(images)} image{'s' if len(images) != 1 else ''}")
+        total_images = len(images)
+        st.caption(f"{total_images} image{'s' if total_images != 1 else ''}")
 
         if not images:
             st.caption("No images match — upload one above.")
         else:
+            # ── Pagination ────────────────────────────────────────────
+            PAGE_SIZE = 20
+            if "lib_page" not in st.session_state:
+                st.session_state.lib_page = 0
+            # Reset page when filter changes
+            filter_key = (lib_search, mood_filter, time_filter)
+            if st.session_state.get("_lib_last_filter") != filter_key:
+                st.session_state.lib_page = 0
+                st.session_state["_lib_last_filter"] = filter_key
+
+            page_start = st.session_state.lib_page * PAGE_SIZE
+            page_end   = page_start + PAGE_SIZE
+            page_imgs  = images[page_start:page_end]
+            total_pages = max(1, -(-total_images // PAGE_SIZE))  # ceiling div
+
+            if total_images > PAGE_SIZE:
+                pg_col1, pg_col2, pg_col3 = st.columns([1, 2, 1])
+                with pg_col1:
+                    if st.button("◀", key="lib_prev_pg", disabled=st.session_state.lib_page == 0):
+                        st.session_state.lib_page -= 1
+                with pg_col2:
+                    st.caption(f"Page {st.session_state.lib_page + 1} / {total_pages}", )
+                with pg_col3:
+                    if st.button("▶", key="lib_next_pg", disabled=page_end >= total_images):
+                        st.session_state.lib_page += 1
+
             # Bulk selection controls
             if "selected_ids" not in st.session_state:
                 st.session_state.selected_ids = set()
@@ -1338,8 +1260,8 @@ def render_sidebar(context: dict, result, user_id: str = "", profile_type: str =
                 if st.button("Deselect All", key="desel_all", use_container_width=True):
                     st.session_state.selected_ids = set()
 
-            # Image list with checkboxes
-            for img in images:
+            # Image list with checkboxes (current page only)
+            for img in page_imgs:
                 analyzed = bool(img.get("is_analyzed"))
                 cb_col, info_col, act_col = st.columns([0.5, 3, 1.5])
                 with cb_col:
