@@ -614,7 +614,9 @@ def inject_sidebar_fab() -> None:
             });
 
             /* Append to body root stacking context (never inside transformed ancestor) */
-            pd.body.appendChild(fab);
+            if (pd.body) {
+                pd.body.appendChild(fab);
+            }
 
             /* ── Monitor sidebar state for visual feedback updates ─────────── */
             setInterval(function () {
@@ -656,6 +658,9 @@ def inject_crossfade_engine() -> None:
             var pd = window.parent.document;
             if (pd.getElementById('chronos-xfade-init')) return;
 
+            /* Guard: body must exist before proceeding */
+            if (!pd.body) return;
+
             /* ── One-time init marker ─────────────────────────────────── */
             var mk = pd.createElement('span');
             mk.id = 'chronos-xfade-init';
@@ -668,7 +673,7 @@ def inject_crossfade_engine() -> None:
                 el.id        = id;
                 el.className = 'chronos-layer';
                 el.style.opacity = '0';
-                pd.body.appendChild(el);
+                if (pd.body) pd.body.appendChild(el);
                 return el;
             }
             var layerA = makeLayer('chronos-layer-a');
@@ -701,14 +706,16 @@ def inject_crossfade_engine() -> None:
             }
 
             /* ── Watch document.body for #chronos-bg-src appearing/changing ── */
-            var obs = new MutationObserver(function () {
-                var src = pd.getElementById('chronos-bg-src');
-                if (!src) return;
-                var url  = src.getAttribute('data-url') || '';
-                var br   = parseFloat(src.getAttribute('data-brightness')) || 0.85;
-                crossfade(url, br);
-            });
-            obs.observe(pd.body, { childList: true, subtree: true });
+            if (pd.body) {
+                var obs = new MutationObserver(function () {
+                    var src = pd.getElementById('chronos-bg-src');
+                    if (!src) return;
+                    var url  = src.getAttribute('data-url') || '';
+                    var br   = parseFloat(src.getAttribute('data-brightness')) || 0.85;
+                    crossfade(url, br);
+                });
+                obs.observe(pd.body, { childList: true, subtree: true });
+            }
 
             /* ── Also fire on initial load if element already present ─── */
             var src0 = pd.getElementById('chronos-bg-src');
@@ -743,6 +750,9 @@ def inject_autohide_ui(timeout_ms: int = 8000) -> None:
             var pd = window.parent.document;
             if (pd.getElementById('chronos-autohide-init')) return;
 
+            /* Guard: body must exist before proceeding */
+            if (!pd.body) return;
+
             var mk = pd.createElement('span');
             mk.id = 'chronos-autohide-init';
             mk.style.display = 'none';
@@ -753,7 +763,7 @@ def inject_autohide_ui(timeout_ms: int = 8000) -> None:
 
             function goIdle()  {{ pd.body.classList.add('chronos-ui-idle'); }}
             function wake()    {{
-                pd.body.classList.remove('chronos-ui-idle');
+                if (pd.body) pd.body.classList.remove('chronos-ui-idle');
                 clearTimeout(timer);
                 timer = setTimeout(goIdle, TIMEOUT);
             }}
