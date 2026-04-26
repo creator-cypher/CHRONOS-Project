@@ -117,26 +117,14 @@ def cached_score_trend(days=30, user_id=""):
 # CSS Injection —dark theme
 # =============================================================================
 
-def inject_static_assets(profile_type: str = "Standard") -> None:
+def inject_static_assets(profile_type: str = "Standard", poll_interval: int = 300) -> None:
     """
-    Injects the full CSS bundle (fonts, animations, sidebar chrome, skeleton
-    loaders, etc.) on every rerun.
-
-    IMPORTANT: st.markdown elements live in Streamlit's element tree. If this
-    call is skipped on a rerun, Streamlit removes the DOM node — taking the
-    entire CSS theme with it. The session_state guard pattern does NOT work for
-    st.markdown CSS. We call st.markdown on every rerun; Streamlit's virtual-DOM
-    diff skips the browser update when the content is unchanged, so there is no
-    real performance cost. _static_styles_html is @st.cache_data, ensuring the
-    string is only computed once per profile_type.
-
-    The meta-refresh is emitted here (once per rerun, fixed position in the
-    element tree) so the browser's reload timer is not reset by sidebar reruns.
+    Injects the full CSS bundle and the browser refresh meta-tag.
     """
     st.markdown(_static_styles_html(profile_type), unsafe_allow_html=True)
     # Emit meta-refresh at a fixed position so Streamlit's diff treats it as
     # the same element on every rerun and the browser timer is not reset.
-    st.markdown('<meta http-equiv="refresh" content="300">', unsafe_allow_html=True)
+    st.markdown(f'<meta http-equiv="refresh" content="{poll_interval}">', unsafe_allow_html=True)
 
 
 def update_dynamic_background(image_css_url: str, time_period: str) -> None:
@@ -153,9 +141,9 @@ def update_dynamic_background(image_css_url: str, time_period: str) -> None:
     )
 
 
-def inject_global_css(image_css_url: str, time_period: str, profile_type: str = "Standard", animate: bool = True) -> None:
+def inject_global_css(image_css_url: str, time_period: str, profile_type: str = "Standard", animate: bool = True, poll_interval: int = 300) -> None:
     """Thin wrapper kept for call-site compatibility."""
-    inject_static_assets(profile_type)
+    inject_static_assets(profile_type, poll_interval=poll_interval)
     update_dynamic_background(image_css_url, time_period)
 
 
@@ -1750,6 +1738,47 @@ def _render_analytics(user_id: str, profile_type: str, prefs: dict) -> None:
             else:
                 st.caption("No score data yet.")
 
+    # ── Display Settings ──────────────────────────────────────────────
+    with st.expander("\u25D3  Display Settings", expanded=False):
+        config = cached_get_display_config()
+        
+        # 1. Refresh Interval
+        current_poll = int(config.get("poll_interval_seconds") or 300)
+        # Map seconds to user-friendly options
+        poll_opts = {
+            "30s": 30, "1m": 60, "2m": 120, "5m": 300, 
+            "10m": 600, "15m": 900, "30m": 1800, "1h": 3600
+        }
+        # Find index of current value or default to 5m
+        curr_idx = list(poll_opts.values()).index(current_poll) if current_poll in poll_opts.values() else 3
+        
+        new_poll_key = st.selectbox(
+            "Auto-Refresh Interval", 
+            options=list(poll_opts.keys()),
+            index=curr_idx,
+            help="How long each image stays on screen before Chronos re-evaluates the context."
+        )
+        new_poll_seconds = poll_opts[new_poll_key]
+        
+        # 2. Overlay Auto-Hide
+        current_hide = int(config.get("overlay_auto_hide_seconds") or 8)
+        new_hide = st.slider(
+            "Overlay Auto-Hide (s)", 0, 30, current_hide, 
+            help="Seconds before the reasoning card fades out. Set to 0 to keep visible."
+        )
+        
+        if st.button("Save Display Settings", use_container_width=True, key="save_display_settings"):
+            try:
+                update_display_config(
+                    poll_interval_seconds=new_poll_seconds,
+                    overlay_auto_hide_seconds=new_hide
+                )
+                cached_get_display_config.clear()
+                st.toast("Display settings saved")
+                st.rerun()
+            except Exception as e:
+                st.toast(f"Failed to save settings: {e}", icon="🚨")
+
     # ── AI Analysis Settings ──────────────────────────────────────────
     with st.expander("\u2699  AI Analysis Settings", expanded=False):
         config = cached_get_display_config()
@@ -1954,8 +1983,15 @@ def main() -> None:
         st.session_state["_last_image_url"] = css_url
 
     # ── 5. Inject CSS (static cached chunk + data-carrier div for crossfade) ─
+    _poll_interval = int(_config.get("poll_interval_seconds") or 300)
     try:
-        inject_global_css(css_url, context.get("time_period", "day"), profile_type=profile_type, animate=_animate)
+        inject_global_css(
+            css_url, 
+            context.get("time_period", "day"), 
+            profile_type=profile_type, 
+            animate=_animate,
+            poll_interval=_poll_interval
+        )
     except Exception as _e:
         pass  # CSS injection failure is cosmetic — continue rendering
 
