@@ -1955,6 +1955,7 @@ def main() -> None:
 
     # ── 1. Context ─────────────────────────────────────────────────────────
     context = get_current_context()
+    _config = cached_get_display_config()
 
     # ── 2. Manager — handles context and decision engine coordination.
     _should_refresh = st.session_state.pop("_force_refresh", False)
@@ -2007,7 +2008,6 @@ def main() -> None:
         pass  # Crossfade unavailable — background updates without transition
 
     # Auto-hide timeout from display config (default 8 s; 0 = disabled)
-    _config        = cached_get_display_config()
     _autohide_secs = int(_config.get("overlay_auto_hide_seconds") or 8)
     if _autohide_secs > 0:
         try:
