@@ -49,11 +49,12 @@ from database.queries import (
     get_top_images_by_display, get_score_trend,
 )
 from logic.context              import get_current_context
-from logic.engine               import select_best_image, WEIGHT_PROFILES
+from logic.engine               import WEIGHT_PROFILES
 from services.vision            import analyze_image
 from services.cloudinary_upload import upload_image as cloudinary_upload, delete_image as cloudinary_delete
 from auth                       import init_auth_state, render_auth_page, logout, get_theme_overrides
 from database                   import init_database
+from services.manager           import ChronosManager
 
 # Wrapped in cache_resource so it runs exactly once per server process,
 # not on every Streamlit rerun.
@@ -614,9 +615,7 @@ def inject_sidebar_fab() -> None:
             });
 
             /* Append to body root stacking context (never inside transformed ancestor) */
-            if (pd.body) {
-                pd.body.appendChild(fab);
-            }
+            pd.body.appendChild(fab);
 
             /* ── Monitor sidebar state for visual feedback updates ─────────── */
             setInterval(function () {
@@ -658,9 +657,6 @@ def inject_crossfade_engine() -> None:
             var pd = window.parent.document;
             if (pd.getElementById('chronos-xfade-init')) return;
 
-            /* Guard: body must exist before proceeding */
-            if (!pd.body) return;
-
             /* ── One-time init marker ─────────────────────────────────── */
             var mk = pd.createElement('span');
             mk.id = 'chronos-xfade-init';
@@ -673,7 +669,7 @@ def inject_crossfade_engine() -> None:
                 el.id        = id;
                 el.className = 'chronos-layer';
                 el.style.opacity = '0';
-                if (pd.body) pd.body.appendChild(el);
+                pd.body.appendChild(el);
                 return el;
             }
             var layerA = makeLayer('chronos-layer-a');
@@ -706,16 +702,14 @@ def inject_crossfade_engine() -> None:
             }
 
             /* ── Watch document.body for #chronos-bg-src appearing/changing ── */
-            if (pd.body) {
-                var obs = new MutationObserver(function () {
-                    var src = pd.getElementById('chronos-bg-src');
-                    if (!src) return;
-                    var url  = src.getAttribute('data-url') || '';
-                    var br   = parseFloat(src.getAttribute('data-brightness')) || 0.85;
-                    crossfade(url, br);
-                });
-                obs.observe(pd.body, { childList: true, subtree: true });
-            }
+            var obs = new MutationObserver(function () {
+                var src = pd.getElementById('chronos-bg-src');
+                if (!src) return;
+                var url  = src.getAttribute('data-url') || '';
+                var br   = parseFloat(src.getAttribute('data-brightness')) || 0.85;
+                crossfade(url, br);
+            });
+            obs.observe(pd.body, { childList: true, subtree: true });
 
             /* ── Also fire on initial load if element already present ─── */
             var src0 = pd.getElementById('chronos-bg-src');
@@ -750,9 +744,6 @@ def inject_autohide_ui(timeout_ms: int = 8000) -> None:
             var pd = window.parent.document;
             if (pd.getElementById('chronos-autohide-init')) return;
 
-            /* Guard: body must exist before proceeding */
-            if (!pd.body) return;
-
             var mk = pd.createElement('span');
             mk.id = 'chronos-autohide-init';
             mk.style.display = 'none';
@@ -763,7 +754,7 @@ def inject_autohide_ui(timeout_ms: int = 8000) -> None:
 
             function goIdle()  {{ pd.body.classList.add('chronos-ui-idle'); }}
             function wake()    {{
-                if (pd.body) pd.body.classList.remove('chronos-ui-idle');
+                pd.body.classList.remove('chronos-ui-idle');
                 clearTimeout(timer);
                 timer = setTimeout(goIdle, TIMEOUT);
             }}
@@ -986,61 +977,25 @@ def _process_upload_file(uploaded_file, user_id: str, profile_type: str):
     """Worker: upload one file to Cloudinary, analyse, safety-check.
     Safe to run in a thread — no Streamlit calls inside.
     Returns (filename, log_line)."""
-    cloud = cloudinary_upload(uploaded_file.getvalue(), filename=uploaded_file.name)
-    if not cloud["success"]:
-        return uploaded_file.name, f"✗ {uploaded_file.name} — upload failed: {cloud['error']}"
-
-    image_id = add_image(title=uploaded_file.name, image_url=cloud["secure_url"], user_id=user_id)
-    r = _run_analysis(image_id, cloud["secure_url"])
-
-    if not r.success and "safety filters" in r.error_message:
-        hard_delete_image(image_id)
-        cloudinary_delete(cloud.get("public_id", ""))
-        return uploaded_file.name, f"🚫 {uploaded_file.name} — blocked by safety filters"
-    if r.success and profile_type == "Kids" and not r.kids_safe:
-        hard_delete_image(image_id)
-        cloudinary_delete(cloud.get("public_id", ""))
-        return uploaded_file.name, f"🚫 {uploaded_file.name} — not suitable for Kids mode"
-    if r.success:
-        return uploaded_file.name, f"✓ {uploaded_file.name} — {r.primary_mood} · {r.optimal_time}"
-    return uploaded_file.name, f"⚠ {uploaded_file.name} — saved, analysis failed: {r.error_message[:60]}"
+    res = ChronosManager.process_new_upload(uploaded_file.getvalue(), uploaded_file.name, user_id)
+    
+    if not res["success"]:
+        return uploaded_file.name, f"✗ {uploaded_file.name} — {res['error']}"
+    
+    return uploaded_file.name, f"✓ {uploaded_file.name} — Uploaded and Analysed"
 
 
 def _process_upload_url(url: str, user_id: str, profile_type: str):
     """Worker: validate URL, add image, analyse, safety-check.
     Safe to run in a thread — no Streamlit calls inside.
     Returns (url_short, log_line)."""
-    import urllib.request
     label = url[:60]
-
-    if not url.startswith(("http://", "https://")):
-        return label, f"✗ {label} — invalid URL"
-
-    try:
-        req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            content_type = resp.headers.get("Content-Type", "")
-        if not content_type.startswith("image/"):
-            return label, f"✗ {label} — not an image ({content_type})"
-    except Exception as e:
-        return label, f"✗ {label} — unreachable: {str(e)[:60]}"
-
-    image_id = add_image(
-        title=url.split("/")[-1][:60] or url[:40],
-        image_url=url,
-        user_id=user_id,
-    )
-    r = _run_analysis(image_id, url)
-
-    if not r.success and "safety filters" in r.error_message:
-        hard_delete_image(image_id)
-        return label, f"🚫 {label} — blocked by safety filters"
-    if r.success and profile_type == "Kids" and not r.kids_safe:
-        hard_delete_image(image_id)
-        return label, f"🚫 {label} — not suitable for Kids mode"
-    if r.success:
-        return label, f"✓ {label} — {r.primary_mood} · {r.optimal_time}"
-    return label, f"⚠ {label} — saved, analysis failed: {r.error_message[:50]}"
+    res = ChronosManager.process_url_upload(url, user_id, profile_type)
+    
+    if not res["success"]:
+        return label, f"✗ {label} — {res['error']}"
+        
+    return label, f"✓ {label} — URL Added and Analysed"
 
 
 def _render_user_header(context: dict, profile_type: str) -> None:
@@ -1972,12 +1927,10 @@ def main() -> None:
     # ── 1. Context ─────────────────────────────────────────────────────────
     context = get_current_context()
 
-    # ── 2. Engine — cached in session_state to prevent re-running on every
-    #    sidebar interaction. Force-refresh is set by buttons/toggles that
-    #    change what image should be shown (override, like/skip, refresh).
+    # ── 2. Manager — handles context and decision engine coordination.
     _should_refresh = st.session_state.pop("_force_refresh", False)
     if _should_refresh or "_sel_result" not in st.session_state:
-        result = select_best_image(context, user_id=user_id, profile_type=profile_type)
+        result = ChronosManager.get_next_display_state(user_id=user_id, profile_type=profile_type)
         st.session_state["_sel_result"] = result
         # Show Kids safety filter notes as toasts on every fresh selection
         if result and result.filter_notes:
