@@ -51,11 +51,16 @@ try:
         # Append sslmode=require for Render-hosted instances that omit it
         if "dpg-" in DATABASE_URL and "?sslmode" not in DATABASE_URL:
             DATABASE_URL += "?sslmode=require"
-        # Use NullPool for all external PostgreSQL: creates a fresh connection per
-        # request, avoiding stale-connection errors after instance sleep/restart.
+            
+        # Optimization: Use a small connection pool with pre-ping and recycle.
+        # Reusing connections is MUCH faster than NullPool (which reconnects every time).
         engine = create_engine(
             DATABASE_URL,
-            poolclass=NullPool,
+            pool_size=5,
+            max_overflow=10,
+            pool_timeout=30,
+            pool_recycle=300,
+            pool_pre_ping=True,
             connect_args={"connect_timeout": 10},
         )
 

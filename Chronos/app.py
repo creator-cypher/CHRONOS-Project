@@ -1767,59 +1767,74 @@ def _render_analytics(user_id: str, profile_type: str, prefs: dict) -> None:
         # Find index of current value or default to 5m
         curr_idx = list(poll_opts.values()).index(current_poll) if current_poll in poll_opts.values() else 3
         
+        def _on_poll_change():
+            val = poll_opts[st.session_state.new_poll_key]
+            update_display_config(poll_interval_seconds=val)
+            cached_get_display_config.clear()
+            st.toast(f"Interval updated to {st.session_state.new_poll_key}")
+
+        def _on_hide_change():
+            val = st.session_state.new_hide_val
+            update_display_config(overlay_auto_hide_seconds=val)
+            cached_get_display_config.clear()
+            st.toast(f"Auto-hide set to {val}s")
+
         new_poll_key = st.selectbox(
             "Auto-Refresh Interval", 
             options=list(poll_opts.keys()),
             index=curr_idx,
+            key="new_poll_key",
+            on_change=_on_poll_change,
             help="How long each image stays on screen before Chronos re-evaluates the context."
         )
-        new_poll_seconds = poll_opts[new_poll_key]
         
         # 2. Overlay Auto-Hide
         current_hide = int(config.get("overlay_auto_hide_seconds") or 8)
         new_hide = st.slider(
             "Overlay Auto-Hide (s)", 0, 30, current_hide, 
+            key="new_hide_val",
+            on_change=_on_hide_change,
             help="Seconds before the reasoning card fades out. Set to 0 to keep visible."
         )
         
-        if st.button("Save Display Settings", use_container_width=True, key="save_display_settings"):
-            try:
-                update_display_config(
-                    poll_interval_seconds=new_poll_seconds,
-                    overlay_auto_hide_seconds=new_hide
-                )
-                cached_get_display_config.clear()
-                st.toast("Display settings saved")
-                st.rerun()
-            except Exception as e:
-                st.toast(f"Failed to save settings: {e}", icon="🚨")
+        st.caption("Changes are saved automatically.")
 
     # ── AI Analysis Settings ──────────────────────────────────────────
     with st.expander("\u2699  AI Analysis Settings", expanded=False):
         config = cached_get_display_config()
-        depth  = st.radio(
+        def _on_ai_change():
+            update_display_config(
+                analysis_depth=st.session_state.ai_depth_radio.lower(),
+                analysis_focus=",".join(st.session_state.ai_focus_ms),
+                custom_prompt=st.session_state.ai_prompt_ta
+            )
+            cached_get_display_config.clear()
+            st.toast("AI analysis updated")
+
+        depth_val = config.get("analysis_depth", "standard").capitalize()
+        depth = st.radio(
             "Analysis Depth", ["Quick", "Standard"],
-            index=0 if config.get("analysis_depth") == "quick" else 1,
-            key="analysis_depth_radio", horizontal=True,
+            index=0 if depth_val == "Quick" else 1,
+            key="ai_depth_radio",
+            on_change=_on_ai_change,
+            horizontal=True,
         )
         focus_options  = ["composition", "color_palette", "emotional_depth",
                           "lighting", "texture", "symbolism"]
         current_focus  = [f for f in config.get("analysis_focus", "").split(",") if f in focus_options]
-        focus  = st.multiselect("Focus Areas", focus_options, default=current_focus, key="analysis_focus_ms")
+        focus  = st.multiselect(
+            "Focus Areas", focus_options, 
+            default=current_focus, 
+            key="ai_focus_ms",
+            on_change=_on_ai_change
+        )
         custom = st.text_area(
             "Custom Instructions", value=config.get("custom_prompt", ""),
             placeholder="e.g. Pay attention to architectural elements",
-            key="custom_prompt_ta", height=68,
+            key="ai_prompt_ta", height=68,
+            on_change=_on_ai_change
         )
-        if st.button("Save AI Settings", use_container_width=True, key="save_ai_settings"):
-            try:
-                update_display_config(analysis_depth=depth.lower(),
-                                      analysis_focus=",".join(focus),
-                                      custom_prompt=custom)
-                cached_get_display_config.clear()
-                st.toast("AI analysis settings saved")
-            except Exception as e:
-                st.toast(f"Failed to save AI settings: {e}", icon="🚨")
+        st.caption("AI settings are saved automatically.")
 
     st.divider()
 
