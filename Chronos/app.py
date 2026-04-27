@@ -290,14 +290,14 @@ html, body {{
 .score-fill {{
     height: 100%; border-radius: 99px;
     background: linear-gradient(90deg, #a78bfa, #7c3aed);
-    width: var(--score-width, 0%);
+    width: 0%; /* Initial state for animation */
     transition: width 1.2s cubic-bezier(0.22,1,0.36,1);
 }}
 @keyframes fillScore {{
     from {{ width: 0%; }}
-    to   {{ width: var(--score-width); }}
 }}
 .score-fill.animate {{
+    /* The final width is handled by inline style, we just animate FROM 0 */
     animation: fillScore 1.4s cubic-bezier(0.22,1,0.36,1) forwards;
 }}
 .tags-row {{ display: flex; flex-wrap: wrap; gap: 6px; }}
@@ -890,7 +890,7 @@ def render_status_bar(context: dict) -> None:
     """, unsafe_allow_html=True)
 
 
-def render_reasoning_overlay(result) -> None:
+def render_reasoning_overlay(result, is_new: bool = False) -> None:
     """Glassmorphism card that explains the current selection with confidence score."""
     if result is None:
         return
@@ -904,17 +904,11 @@ def render_reasoning_overlay(result) -> None:
         for t in (result.matched_tags or [])[:5]
     )
 
-    # score-fill starts at width:0% (via CSS rule); inject_score_animator()
-    # transitions it to data-score only when the image actually changes.
-    # Score-fill uses a CSS variable and an animation class.
-    # We trigger the 'animate' class only if the image has changed.
-    _last_url = st.session_state.get("_last_image_url", "")
-    _current_url = get_image_css_url(result.image) if result and result.image else ""
-    _is_new = _current_url != _last_url
-    anim_class = "animate" if _is_new else ""
+    # Score-fill uses inline width for reliability + CSS animation for premium feel.
+    anim_class = "animate" if is_new else ""
 
     st.markdown(f"""
-    <div class="reasoning-card glass anim-up" style="--score-width: {confidence}%;">
+    <div class="reasoning-card glass anim-up">
       <div class="reasoning-header">
         <div class="reasoning-period">
           <span>{period_icon}</span>
@@ -924,7 +918,7 @@ def render_reasoning_overlay(result) -> None:
       </div>
       <div class="reasoning-text">{result.reasoning_text}</div>
       <div class="score-track">
-        <div class="score-fill {anim_class}"></div>
+        <div class="score-fill {anim_class}" style="width: {confidence}%;"></div>
       </div>
       <div class="tags-row">{tags_html}</div>
     </div>
@@ -2062,7 +2056,7 @@ def main() -> None:
         pass  # Status bar is decorative — do not crash on failure
 
     try:
-        render_reasoning_overlay(result)
+        render_reasoning_overlay(result, is_new=_animate)
     except Exception as _e:
         pass  # Reasoning overlay is non-critical
 
