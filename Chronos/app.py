@@ -872,7 +872,7 @@ def render_status_bar(context: dict) -> None:
     """, unsafe_allow_html=True)
 
 
-def render_reasoning_overlay(result, is_new: bool = False) -> None:
+def render_reasoning_overlay(result, is_new: bool = False, profile_type: str = "Standard") -> None:
     """Glassmorphism card that explains the current selection with confidence score."""
     if result is None:
         return
@@ -886,16 +886,21 @@ def render_reasoning_overlay(result, is_new: bool = False) -> None:
         for t in (result.matched_tags or [])[:5]
     )
 
-    # Score-fill uses inline width for reliability + CSS animation for premium feel.
-    anim_class = "animate" if is_new else ""
+    # Profile-based Color Themes
+    theme_colors = {
+        "Professional": ("#34d399", "#10b981"), # Green
+        "Kids":         ("#38bdf8", "#0ea5e9"), # Blue
+        "Standard":     ("#a78bfa", "#7c3aed"), # Purple
+    }
+    primary, secondary = theme_colors.get(profile_type, theme_colors["Standard"])
 
     # SVG Progress Bar - robust across all browsers/Streamlit versions
     progress_svg = f"""
     <svg width="100%" height="4" style="border-radius:2px; margin-bottom:12px; display:block;">
       <defs>
         <linearGradient id="scoreGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-          <stop offset="0%" style="stop-color:#a78bfa;stop-opacity:1" />
-          <stop offset="100%" style="stop-color:#7c3aed;stop-opacity:1" />
+          <stop offset="0%" style="stop-color:{primary};stop-opacity:1" />
+          <stop offset="100%" style="stop-color:{secondary};stop-opacity:1" />
         </linearGradient>
       </defs>
       <rect width="100%" height="4" fill="rgba(255,255,255,0.12)" rx="2" />
@@ -2052,7 +2057,7 @@ def main() -> None:
         pass  # Status bar is decorative — do not crash on failure
 
     try:
-        render_reasoning_overlay(result, is_new=_animate)
+        render_reasoning_overlay(result, is_new=_animate, profile_type=profile_type)
     except Exception as _e:
         pass  # Reasoning overlay is non-critical
 
