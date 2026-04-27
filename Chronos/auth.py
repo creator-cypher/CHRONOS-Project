@@ -17,6 +17,7 @@ ensuring complete data sovereignty — no external auth providers needed.
 """
 
 import bcrypt
+import base64
 import streamlit as st
 
 from database.queries import (
@@ -138,12 +139,30 @@ html, body {
 }
 
 .stApp {
-    background: linear-gradient(-45deg,
-        #0a0a14, #12051f, #050d1a, #0a0f14,
-        #140a1e, #0d0518, #091218, #0a0a14) !important;
-    background-size: 400% 400% !important;
-    animation: gradientShift 25s ease infinite !important;
+    background: transparent !important;
     min-height: 100vh;
+}
+
+/* Cinematic Video Background */
+#auth-bg-video {
+    position: fixed;
+    right: 0;
+    bottom: 0;
+    min-width: 100%;
+    min-height: 100%;
+    width: auto;
+    height: auto;
+    z-index: -1;
+    object-fit: cover;
+    filter: brightness(0.4) saturate(1.2);
+}
+
+.video-overlay {
+    position: fixed;
+    top: 0; left: 0; width: 100%; height: 100%;
+    background: radial-gradient(circle at center, transparent 0%, rgba(0,0,0,0.4) 100%);
+    z-index: 0;
+    pointer-events: none;
 }
 
 /* Noise overlay */
@@ -173,14 +192,14 @@ section.main > div.block-container {
 
 /* Glass card styling for the form */
 [data-testid="stForm"] {
-    background: rgba(255,255,255,0.04) !important;
-    backdrop-filter: blur(40px) saturate(200%) !important;
-    -webkit-backdrop-filter: blur(40px) saturate(200%) !important;
-    border: 1px solid rgba(255,255,255,0.08) !important;
-    border-radius: 20px !important;
-    padding: 40px 36px !important;
-    box-shadow: 0 16px 64px rgba(0,0,0,0.6),
-                inset 0 1px 0 rgba(255,255,255,0.05) !important;
+    background: rgba(15, 15, 20, 0.45) !important;
+    backdrop-filter: blur(50px) saturate(210%) brightness(0.8) !important;
+    -webkit-backdrop-filter: blur(50px) saturate(210%) brightness(0.8) !important;
+    border: 1px solid rgba(255,255,255,0.06) !important;
+    border-radius: 28px !important;
+    padding: 48px 42px !important;
+    box-shadow: 0 32px 80px rgba(0,0,0,0.8),
+                inset 0 1px 1px rgba(255,255,255,0.08) !important;
 }
 
 /* Input fields */
@@ -265,8 +284,28 @@ section.main > div.block-container {
 # Auth Pages
 # ---------------------------------------------------------------------------
 
+def _get_video_base64(path: str) -> str:
+    """Read a local video file and return its base64 data URL."""
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+            return f"data:video/mp4;base64,{base64.b64encode(data).decode()}"
+    except Exception:
+        return ""
+
+
 def render_auth_page() -> None:
     """Render the login or registration page with glassmorphism design."""
+    # Inject Video Background
+    video_b64 = _get_video_base64("logos/chronos_vid.mp4")
+    if video_b64:
+        st.markdown(f"""
+            <video autoplay muted loop playsinline id="auth-bg-video">
+                <source src="{video_b64}" type="video/mp4">
+            </video>
+            <div class="video-overlay"></div>
+        """, unsafe_allow_html=True)
+
     st.markdown(_AUTH_CSS, unsafe_allow_html=True)
 
     if st.session_state.get("auth_page") == "register":

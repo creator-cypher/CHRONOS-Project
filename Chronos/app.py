@@ -30,7 +30,7 @@ load_dotenv(Path(__file__).resolve().parent / ".env")
 
 # ─── Page config — MUST be the first Streamlit call ──────────────────────────
 st.set_page_config(
-    page_title="Chronos",
+    page_title="Chronos | Adaptive Ambient Display System",
     page_icon="logos/chronos_logo.png",
     layout="wide",
     initial_sidebar_state="auto",
@@ -850,6 +850,59 @@ def get_gallery_thumbnail_url(url: str, width: int = 200) -> str:
     transform = f"w_{width},c_thumb,q_auto,f_auto"
     return url[: idx + len(marker)] + transform + "/" + url[idx + len(marker) :]
 
+# =============================================================================
+# SEO & Metadata Injection
+# =============================================================================
+
+def inject_seo_metadata() -> None:
+    """
+    Injects professional SEO meta tags, OpenGraph, and Twitter cards.
+    This makes the site 'stand out' when shared or indexed by search engines.
+    """
+    title = "Chronos | Adaptive Ambient Display System"
+    desc  = ("Experience the world's first AI-driven ambient display. Chronos adapts your digital space "
+            "to your mood, time of day, and environment using Gemini Vision intelligence.")
+    url   = "https://thechronosaura.com/"
+    
+    # We use st.markdown with a hidden div to inject tags into the <head>
+    st.markdown(f"""
+    <!-- SEO Meta Tags -->
+    <meta name="description" content="{desc}">
+    <meta name="keywords" content="Ambient Display, AI Art, Gemini Vision, Smart Display, Digital Decor, Chronos Aura">
+    <meta name="author" content="Chronos Team">
+    
+    <!-- OpenGraph (Facebook / LinkedIn) -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="{url}">
+    <meta property="og:title" content="{title}">
+    <meta property="og:description" content="{desc}">
+    <meta property="og:image" content="{url}logos/chronos_logo.png">
+
+    <!-- Twitter -->
+    <meta property="twitter:card" content="summary_large_image">
+    <meta property="twitter:url" content="{url}">
+    <meta property="twitter:title" content="{title}">
+    <meta property="twitter:description" content="{desc}">
+    <meta property="twitter:image" content="{url}logos/chronos_logo.png">
+
+    <!-- Structured Data (JSON-LD) -->
+    <script type="application/ld+json">
+    {{
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "Chronos",
+      "operatingSystem": "Web",
+      "applicationCategory": "LifestyleApplication",
+      "offers": {{
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD"
+      }},
+      "description": "{desc}"
+    }}
+    </script>
+    """, unsafe_allow_html=True)
+
 
 def render_status_bar(context: dict) -> None:
     """Fixed top-left ambient time indicator."""
@@ -1013,7 +1066,7 @@ def _render_user_header(context: dict, profile_type: str) -> None:
             f"{_label}</span>"
         )
     # Official Chronos Logo
-    st.image("logos/chronos_logo_trans2.png", use_container_width=True)
+    st.image("logos/chronos_logo_trans2.png", width=100)
     
     st.markdown(f"""
     <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0 6px">
@@ -1964,6 +2017,9 @@ def main() -> None:
       3. Inject the image as the full-viewport CSS background with themed overrides
       4. Render the status bar, reasoning overlay, and sidebar controls
     """
+    # ── 0. SEO & Analytics ───────────────────────────────────────────────
+    inject_seo_metadata()
+
     # ── 0. Authentication gate ─────────────────────────────────────────────
     try:
         init_auth_state()
