@@ -290,7 +290,15 @@ html, body {{
 .score-fill {{
     height: 100%; border-radius: 99px;
     background: linear-gradient(90deg, #a78bfa, #7c3aed);
+    width: var(--score-width, 0%);
     transition: width 1.2s cubic-bezier(0.22,1,0.36,1);
+}}
+@keyframes fillScore {{
+    from {{ width: 0%; }}
+    to   {{ width: var(--score-width); }}
+}}
+.score-fill.animate {{
+    animation: fillScore 1.4s cubic-bezier(0.22,1,0.36,1) forwards;
 }}
 .tags-row {{ display: flex; flex-wrap: wrap; gap: 6px; }}
 .tag-chip {{
@@ -898,8 +906,15 @@ def render_reasoning_overlay(result) -> None:
 
     # score-fill starts at width:0% (via CSS rule); inject_score_animator()
     # transitions it to data-score only when the image actually changes.
+    # Score-fill uses a CSS variable and an animation class.
+    # We trigger the 'animate' class only if the image has changed.
+    _last_url = st.session_state.get("_last_image_url", "")
+    _current_url = get_image_css_url(result.image) if result and result.image else ""
+    _is_new = _current_url != _last_url
+    anim_class = "animate" if _is_new else ""
+
     st.markdown(f"""
-    <div class="reasoning-card glass anim-up">
+    <div class="reasoning-card glass anim-up" style="--score-width: {confidence}%;">
       <div class="reasoning-header">
         <div class="reasoning-period">
           <span>{period_icon}</span>
@@ -909,7 +924,7 @@ def render_reasoning_overlay(result) -> None:
       </div>
       <div class="reasoning-text">{result.reasoning_text}</div>
       <div class="score-track">
-        <div class="score-fill" data-score="{confidence}%"></div>
+        <div class="score-fill {anim_class}"></div>
       </div>
       <div class="tags-row">{tags_html}</div>
     </div>
@@ -2036,10 +2051,6 @@ def main() -> None:
     except Exception as _e:
         pass  # Reasoning overlay is non-critical
 
-    try:
-        inject_score_animator()
-    except Exception as _e:
-        pass  # Score animation is cosmetic
 
     # ── Sidebar ───────────────────────────────────────────────────────────
     with st.sidebar:
