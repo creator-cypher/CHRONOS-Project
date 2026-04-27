@@ -37,9 +37,9 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 WEIGHT_PROFILES: dict[str, dict[str, float]] = {
-    "low":    {"time": 0.20, "mood": 0.15, "preference": 0.40, "quality": 0.15, "recency": 0.10},
-    "medium": {"time": 0.35, "mood": 0.25, "preference": 0.20, "quality": 0.10, "recency": 0.10},
-    "high":   {"time": 0.40, "mood": 0.30, "preference": 0.10, "quality": 0.10, "recency": 0.10},
+    "low":    {"time": 0.20, "mood": 0.15, "preference": 0.40, "quality": 0.15, "recency": 0.25},
+    "medium": {"time": 0.35, "mood": 0.25, "preference": 0.20, "quality": 0.10, "recency": 0.25},
+    "high":   {"time": 0.40, "mood": 0.30, "preference": 0.10, "quality": 0.10, "recency": 0.20},
 }
 
 MOOD_COMPAT: dict[str, dict[str, float]] = {
@@ -236,6 +236,7 @@ def select_best_image(
         _filter_notes.append(f"Kids Safety: '{target_mood}' mood is restricted — showing 'joyful' instead")
         target_mood = "joyful"
 
+    import random
     best: Optional[SelectionResult] = None
     best_score = -1.0
 
@@ -243,14 +244,20 @@ def select_best_image(
         tags   = get_tags_for_image(img["id"])
         result = _score(img, tags, context, prefs, weights, recently_shown, target_mood)
 
+        # ── Tie-breaking & Variety ──
+        # Add a tiny random jitter (±0.005) to ensure that if two images have 
+        # near-identical scores, the system rotates between them.
+        jitter = random.uniform(-0.005, 0.005)
+        current_total = result.total_score + jitter
+
         # Kids mode: boost images with safe tags
         if profile_type == "Kids":
             tag_names = {t["name"].lower() for t in tags}
             safe_hits = len(tag_names & KIDS_SAFE_TAGS)
-            result.total_score = min(1.0, result.total_score + safe_hits * 0.03)
+            current_total = min(1.0, current_total + safe_hits * 0.03)
 
-        if result.total_score > best_score:
-            best_score = result.total_score
+        if current_total > best_score:
+            best_score = current_total
             best = result
 
     if best is None:

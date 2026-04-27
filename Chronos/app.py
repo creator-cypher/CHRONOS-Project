@@ -1958,10 +1958,21 @@ def main() -> None:
     _config = cached_get_display_config()
 
     # ── 2. Manager — handles context and decision engine coordination.
+    _now = time.time()
+    _last_sel_time = st.session_state.get("_last_sel_time", 0)
+    _poll_interval = int(_config.get("poll_interval_seconds") or 300)
+    
     _should_refresh = st.session_state.pop("_force_refresh", False)
+    
+    # If the poll interval has passed since the last selection, trigger a fresh one.
+    # This ensures that browser meta-refreshes actually change the image.
+    if (_now - _last_sel_time) >= _poll_interval:
+        _should_refresh = True
+
     if _should_refresh or "_sel_result" not in st.session_state:
         result = ChronosManager.get_next_display_state(user_id=user_id, profile_type=profile_type)
         st.session_state["_sel_result"] = result
+        st.session_state["_last_sel_time"] = _now
         # Show Kids safety filter notes as toasts on every fresh selection
         if result and result.filter_notes:
             for note in result.filter_notes:
@@ -1984,7 +1995,6 @@ def main() -> None:
         st.session_state["_last_image_url"] = css_url
 
     # ── 5. Inject CSS (static cached chunk + data-carrier div for crossfade) ─
-    _poll_interval = int(_config.get("poll_interval_seconds") or 300)
     try:
         inject_global_css(
             css_url, 

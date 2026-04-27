@@ -34,7 +34,7 @@ if not DATABASE_URL:
     _db_path = Path(__file__).resolve().parent.parent / "chronos.db"
     DATABASE_URL = f"sqlite:///{_db_path}"
     _using_sqlite = True
-    print(f"📁  DATABASE_URL not set — using local SQLite: {_db_path}")
+    print(f"[INFO] DATABASE_URL not set — using local SQLite: {_db_path}")
 
 engine = None
 SessionLocal = None
@@ -61,7 +61,7 @@ try:
 
     SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
 except Exception as e:
-    print(f"⚠️  Database connection failed: {e}")
+    print(f"[WARNING] Database connection failed: {e}")
     print("App will start but database features will be unavailable.")
     engine = None
     SessionLocal = None

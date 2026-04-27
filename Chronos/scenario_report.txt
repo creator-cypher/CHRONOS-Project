@@ -1,0 +1,89 @@
+
+==============================================================================
+  CHRONOS — SCENARIO TEST RUNNER
+  25 image(s) in library (User: Global)
+==============================================================================
+
+  Image Interaction Summary (likes / skips recorded so far):
+  Title                             Mood          Time          Likes  Skips
+  ----------------------------------------------------------------------------
+  20260323_033053.jpg               mysterious    evening           4      0
+  Virgin Mary                       calm          any               1      6
+  20260315_133601.jpg               mysterious    any               0      0
+  20260315_131437.jpg               mysterious    evening           8      2
+  20260315_131437.jpg               mysterious    night             0      0
+  20260315_133559.jpg               mysterious    any               0      0
+  20260315_133559.jpg               mysterious    any               0      0
+  20260315_131440.jpg               mysterious    night             0      0
+  the portal                        mysterious    night             0      0
+  stallion                          neutral       any               0      0
+  Wooden House in Middle of Lake    mysterious    night             0      0
+  A Couple Walking on Pier          melancholic   afternoon         0      0
+  A Person in Green Forest Trees    mysterious    afternoon         0      0
+  The Witcher 3                     mysterious    night             0      0
+  Woman and Man riding on bike      energetic     afternoon         7      1
+  Green Mysterious Doorway          mysterious    night             2      5
+  Chair in a Delapidated Building   mysterious    afternoon         4      5
+  Girl Holding White Flower         joyful        afternoon         0      0
+  White Short Coated Dog            joyful        afternoon         0      0
+  Two Yellow Labrador Retriever P   joyful        afternoon         0      1
+  Tree of Life                      mysterious    evening           4      5
+  Forest Under Cloud                mysterious    morning           5     13
+  The Mysterious Monument           mysterious    evening           0      0
+  The Oasis                         energetic     evening           0      3
+  Auroras Borealis                  mysterious    night             5     31
+
+------------------------------------------------------------------------------
+  TEST 1 — Time Period Coverage  (default preferences)
+------------------------------------------------------------------------------
+  Scenario                        Selected Image                Score  Breakdown (T=time, M=mood, P=pref, I=interaction)
+  ----------------------------------------------------------------------------
+  Dawn       (05:00)              Woman and Man riding on bik   0.56  T:0.10  M:0.66  P:0.70  I:+0.15
+  Morning    (09:00)              Woman and Man riding on bik   0.81  T:0.50  M:1.10  P:0.70  I:+0.15
+  Afternoon  (14:00)              Woman and Man riding on bik   0.94  T:1.00  M:0.92  P:0.70  I:+0.15
+  Evening    (18:30)              Woman and Man riding on bik   0.70  T:0.50  M:0.66  P:0.70  I:+0.15
+  Night      (22:00)              Woman and Man riding on bik   0.56  T:0.10  M:0.66  P:0.70  I:+0.15
+
+------------------------------------------------------------------------------
+  TEST 2 — Sensitivity Levels  (afternoon/joyful context)
+------------------------------------------------------------------------------
+  Scenario                        Selected Image                Score  Breakdown
+  ----------------------------------------------------------------------------
+  Sensitivity = low               Woman and Man riding on bik   0.89  T:1.00  M:0.92  P:0.70  I:+0.15
+  Sensitivity = medium            Woman and Man riding on bik   0.94  T:1.00  M:0.92  P:0.70  I:+0.15
+  Sensitivity = high              Woman and Man riding on bik   0.97  T:1.00  M:0.92  P:0.70  I:+0.15
+
+------------------------------------------------------------------------------
+  TEST 3 — Preferred Mood Override  (evening/calm context)
+------------------------------------------------------------------------------
+  Scenario                        Selected Image                Score  Breakdown
+  ----------------------------------------------------------------------------
+  Preferred mood = calm           20260315_131437.jpg           0.57  T:1.00  M:0.00  P:0.00  I:+0.15
+  Preferred mood = energetic      Woman and Man riding on bik   0.70  T:0.50  M:0.66  P:0.70  I:+0.15
+  Preferred mood = joyful         White Short Coated Dog        0.61  T:0.50  M:0.69  P:0.85  I:+0.00
+  Preferred mood = melancholic    20260315_131437.jpg           0.71  T:1.00  M:0.22  P:0.43  I:+0.15
+  Preferred mood = mysterious     20260315_131437.jpg           0.88  T:1.00  M:0.54  P:0.85  I:+0.15
+  Preferred mood = neutral        20260315_131437.jpg           0.57  T:1.00  M:0.00  P:0.00  I:+0.15
+
+------------------------------------------------------------------------------
+  TEST 4 — Interaction Signal  (does like/skip change selection?)
+------------------------------------------------------------------------------
+  Running afternoon context before and after 3 likes on top image...
+
+  Before:  Woman and Man riding on bik   score=0.943
+  After 3 likes: Woman and Man riding on bik  score=0.943  (d+0.000)
+
+------------------------------------------------------------------------------
+  TEST 5 — Profile Safety Filter (Kids Mode vs Standard)
+------------------------------------------------------------------------------
+  Verifying that Kids profile applies stricter mood filtering...
+
+  Standard Profile: 20260315_131440.jpg         
+  Kids Profile:     Virgin Mary                 
+    [Filter Note]: Kids Safety: 19 images hidden due to content restrictions
+
+==============================================================================
+  All scenarios saved to context_logs.
+  View results: main app -> sidebar -> Recent History
+==============================================================================
+
