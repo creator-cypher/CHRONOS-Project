@@ -282,24 +282,6 @@ html, body {{
     color: rgba(255,255,255,0.78);
     line-height: 1.55; letter-spacing: 0.02em; margin-bottom: 12px;
 }}
-.score-track {{
-    height: 3px; border-radius: 99px;
-    background: rgba(255,255,255,0.12);
-    margin-bottom: 12px; overflow: hidden;
-}}
-.score-fill {{
-    height: 100%; border-radius: 99px;
-    background: linear-gradient(90deg, #a78bfa, #7c3aed);
-    width: 0%; /* Initial state for animation */
-    transition: width 1.2s cubic-bezier(0.22,1,0.36,1);
-}}
-@keyframes fillScore {{
-    from {{ width: 0%; }}
-}}
-.score-fill.animate {{
-    /* The final width is handled by inline style, we just animate FROM 0 */
-    animation: fillScore 1.4s cubic-bezier(0.22,1,0.36,1) forwards;
-}}
 .tags-row {{ display: flex; flex-wrap: wrap; gap: 6px; }}
 .tag-chip {{
     padding: 3px 10px; border-radius: 999px;
@@ -907,6 +889,22 @@ def render_reasoning_overlay(result, is_new: bool = False) -> None:
     # Score-fill uses inline width for reliability + CSS animation for premium feel.
     anim_class = "animate" if is_new else ""
 
+    # SVG Progress Bar - robust across all browsers/Streamlit versions
+    progress_svg = f"""
+    <svg width="100%" height="4" style="border-radius:2px; margin-bottom:12px; display:block;">
+      <defs>
+        <linearGradient id="scoreGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" style="stop-color:#a78bfa;stop-opacity:1" />
+          <stop offset="100%" style="stop-color:#7c3aed;stop-opacity:1" />
+        </linearGradient>
+      </defs>
+      <rect width="100%" height="4" fill="rgba(255,255,255,0.12)" rx="2" />
+      <rect width="{confidence}%" height="4" fill="url(#scoreGrad)" rx="2">
+        {"<animate attributeName='width' from='0' to='" + str(confidence) + "%' dur='1.2s' fill='freeze' calcMode='spline' keySplines='0.22 1 0.36 1' />" if is_new else ""}
+      </rect>
+    </svg>
+    """
+
     st.markdown(f"""
     <div class="reasoning-card glass anim-up">
       <div class="reasoning-header">
@@ -917,9 +915,7 @@ def render_reasoning_overlay(result, is_new: bool = False) -> None:
         <div class="reasoning-score">{confidence}% Match</div>
       </div>
       <div class="reasoning-text">{result.reasoning_text}</div>
-      <div class="score-track">
-        <div class="score-fill {anim_class}" style="width: {confidence}%;"></div>
-      </div>
+      {progress_svg}
       <div class="tags-row">{tags_html}</div>
     </div>
     """, unsafe_allow_html=True)
