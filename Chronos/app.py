@@ -31,7 +31,7 @@ load_dotenv(Path(__file__).resolve().parent / ".env")
 # ─── Page config — MUST be the first Streamlit call ──────────────────────────
 st.set_page_config(
     page_title="Chronos",
-    page_icon="\U0001F319",
+    page_icon="logos/chronos_logo.png",
     layout="wide",
     initial_sidebar_state="auto",
 )
@@ -1012,8 +1012,11 @@ def _render_user_header(context: dict, profile_type: str) -> None:
             f"color:{_color};letter-spacing:0.1em;text-transform:uppercase;font-weight:600'>"
             f"{_label}</span>"
         )
+    # Official Chronos Logo
+    st.image("logos/chronos_logo_trans2.png", use_container_width=True)
+    
     st.markdown(f"""
-    <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 0 6px">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0 6px">
       <div>
         <div style="font-size:0.62rem;font-weight:400;margin:0;color:rgba(255,255,255,0.65);
                     display:flex;align-items:center;flex-wrap:wrap;gap:4px">
@@ -1930,17 +1933,15 @@ PLACEHOLDER_CSS_URL = (
 def render_empty_state() -> None:
     """Shown when no analysed images exist in the database."""
     moon_icon = bi('moon-stars', '2.5rem', 'rgba(255,255,255,0.6)')
-    st.markdown(f"""
-    <div style="
-        position: fixed; top: 50%; left: 50%;
-        transform: translate(-50%, -50%);
-        text-align: center; z-index: 10;
-        animation: fadeInUp 1s ease forwards;
-    ">
-      <p style="font-size:2.5rem;margin:0">{moon_icon}</p>
-      <p style="font-size:1rem;font-weight:200;letter-spacing:0.1em;margin:12px 0 6px">
-        Chronos is ready.
-      </p>
+    # Center the logo and text
+    _, col, _ = st.columns([1, 2, 1])
+    with col:
+        st.image("logos/chronos_logo_trans2.png", use_container_width=True)
+        st.markdown(f"""
+        <div style="text-align: center; animation: fadeInUp 1s ease forwards;">
+          <p style="font-size:1rem;font-weight:200;letter-spacing:0.1em;margin:12px 0 6px">
+            Chronos is ready.
+          </p>
       <p style="font-size:0.75rem;color:rgba(255,255,255,0.4);font-weight:300;
                 max-width:280px;line-height:1.6;margin:0 auto">
         Open the sidebar and upload your first image.<br>

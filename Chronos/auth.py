@@ -277,12 +277,13 @@ def render_auth_page() -> None:
 
 def _render_login() -> None:
     """Login form with glassmorphism card."""
+    # Official Chronos Logo
+    _, logo_col, _ = st.columns([1, 1.5, 1])
+    with logo_col:
+        st.image("logos/chronos_logo_trans2.png", use_container_width=True)
+    
     st.markdown("""
-    <div style="text-align:center;margin-bottom:32px">
-      <p style="font-size:0.5rem;letter-spacing:0.30em;text-transform:uppercase;
-                color:rgba(255,255,255,0.18);margin:0 0 10px;font-weight:700">
-        Chronos
-      </p>
+    <div style="text-align:center;margin-bottom:24px;margin-top:-10px">
       <p style="font-size:1.6rem;font-weight:200;letter-spacing:-0.02em;
                 margin:0;color:rgba(255,255,255,0.9)">
         Welcome Back
@@ -331,12 +332,13 @@ def _render_login() -> None:
 
 def _render_register() -> None:
     """Registration form with Profile Type selection."""
+    # Official Chronos Logo
+    _, logo_col, _ = st.columns([1, 1.5, 1])
+    with logo_col:
+        st.image("logos/chronos_logo_trans2.png", use_container_width=True)
+
     st.markdown("""
-    <div style="text-align:center;margin-bottom:32px">
-      <p style="font-size:0.5rem;letter-spacing:0.30em;text-transform:uppercase;
-                color:rgba(255,255,255,0.18);margin:0 0 10px;font-weight:700">
-        Chronos
-      </p>
+    <div style="text-align:center;margin-bottom:24px;margin-top:-10px">
       <p style="font-size:1.6rem;font-weight:200;letter-spacing:-0.02em;
                 margin:0;color:rgba(255,255,255,0.9)">
         Create Account
